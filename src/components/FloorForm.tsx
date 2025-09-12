@@ -2,7 +2,6 @@
 
 import React, { useMemo, useState } from "react";
 
-/* ========= Types ========= */
 export type Edge = "N" | "E" | "S" | "W";
 export type RoomType = "living" | "kitchen" | "bed" | "wc";
 
@@ -12,11 +11,13 @@ export interface DoorInput {
   width: number;
   offsetRatio: number;
 }
+
 export interface RoomInput {
   id: string;
   type: RoomType;
   doors: DoorInput[];
 }
+
 export interface FloorInput {
   floor: {
     width: number;
@@ -281,7 +282,7 @@ export default function FloorForm({ onSubmit }: Props) {
                 </div>
                 <p className="text-gray-600 mb-2">Chưa có phòng nào</p>
                 <p className="text-sm text-gray-500">
-                  Nhấn "Thêm phòng" để bắt đầu thiết kế
+                  Nhấn {'"Thêm phòng"'} để bắt đầu thiết kế
                 </p>
               </div>
             ) : (

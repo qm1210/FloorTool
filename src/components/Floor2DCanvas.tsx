@@ -16,6 +16,13 @@ type Props = {
   height?: number | string;
 };
 
+// ✅ Interface cho fitViewToFloor với min/max properties
+interface FitViewToFloor {
+  (padding?: number): void;
+  _min?: number;
+  _max?: number;
+}
+
 const Z_STEP = 0.0005;
 const Z_BASE = 0.01;
 
@@ -93,7 +100,8 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
     camera.updateProjectionMatrix();
   };
 
-  const fitViewToFloor = (padding = 1.0) => {
+  // ✅ Typed fitViewToFloor function
+  const fitViewToFloor: FitViewToFloor = (padding = 1.0) => {
     const wrap = wrapRef.current,
       camera = cameraRef.current;
     if (!wrap || !camera) return;
@@ -107,8 +115,8 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
     );
     const MAX = next * 4,
       MIN = next * 0.25;
-    (fitViewToFloor as any)._min = MIN;
-    (fitViewToFloor as any)._max = MAX;
+    fitViewToFloor._min = MIN;
+    fitViewToFloor._max = MAX;
     camScaleRef.current = next;
     applyOrthoFromScale();
   };
@@ -175,10 +183,16 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
     spec: { side: Side; width: number; offsetRatio: number }
   ) => {
     const geom = mesh.geometry as THREE.PlaneGeometry;
-    // @ts-ignore
-    const w: number = geom.parameters.width;
-    // @ts-ignore
-    const h: number = geom.parameters.height;
+    const w: number = (
+      geom as THREE.PlaneGeometry & {
+        parameters: { width: number; height: number };
+      }
+    ).parameters.width;
+    const h: number = (
+      geom as THREE.PlaneGeometry & {
+        parameters: { width: number; height: number };
+      }
+    ).parameters.height;
 
     const along = spec.side === "N" || spec.side === "S" ? w : h;
     const doorW = Math.max(0.6, Math.min(spec.width, along - 0.05));
@@ -224,14 +238,20 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
 
   const roomFromHitObject = (obj: THREE.Object3D | null) => {
     let cur: THREE.Object3D | null = obj;
-    while (cur && !(cur as any).userData?.roomId) cur = cur.parent;
+    // ✅ Type assertion cho userData
+    while (cur && !(cur.userData as { roomId?: string }).roomId)
+      cur = cur.parent;
     if (!cur) return null;
     return roomsRef.current.find((x) => x.mesh === cur);
   };
 
   // Tìm phòng có z-index cao nhất trong danh sách hits
   const findTopmostRoom = (hits: THREE.Intersection[]) => {
-    const hitRooms: { id: string; room: any; hit: THREE.Intersection }[] = [];
+    const hitRooms: {
+      id: string;
+      room: { id: string; mesh: THREE.Mesh; w: number; h: number };
+      hit: THREE.Intersection;
+    }[] = [];
 
     for (const hit of hits) {
       const room = roomFromHitObject(hit.object);
@@ -315,8 +335,9 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
 
     // grid
     const grid = new THREE.GridHelper(200, 200, 0xdddddd, 0xdddddd);
-    // @ts-ignore
-    grid.rotation.x = Math.PI / 2;
+    // ✅ Type assertion thay vì @ts-ignore
+    (grid as THREE.GridHelper & { rotation: THREE.Euler }).rotation.x =
+      Math.PI / 2;
     const gridMat = grid.material as THREE.LineBasicMaterial;
     gridMat.transparent = true;
     gridMat.opacity = 0.45;
@@ -342,8 +363,8 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
       e.preventDefault();
       const ZOOM_SPEED = 0.0015;
       const factor = Math.exp(-e.deltaY * ZOOM_SPEED);
-      const min = (fitViewToFloor as any)._min ?? 5;
-      const max = (fitViewToFloor as any)._max ?? 1000;
+      const min = fitViewToFloor._min ?? 5;
+      const max = fitViewToFloor._max ?? 1000;
       camScaleRef.current = Math.min(
         max,
         Math.max(min, camScaleRef.current * factor)
@@ -359,19 +380,20 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
     const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
     const hit = new THREE.Vector3();
 
-    const getMouseNDC = (evt: MouseEvent) => {
+    const getMouseNDC = (evt: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
     };
 
-    const onDown = (evt: MouseEvent) => {
+    const onDown = (evt: PointerEvent) => {
       if (!cameraRef.current || !rendererRef.current) return;
 
-      // Bắt pointer để không "rơi" khi kéo ra ngoài canvas
-      (rendererRef.current.domElement as any).setPointerCapture?.(
-        (evt as any).pointerId
-      );
+      // ✅ Type assertion cho setPointerCapture
+      const element = rendererRef.current.domElement as HTMLElement & {
+        setPointerCapture?: (pointerId: number) => void;
+      };
+      element.setPointerCapture?.((evt as PointerEvent).pointerId);
 
       getMouseNDC(evt);
       ray.setFromCamera(mouse, cameraRef.current);
@@ -464,7 +486,7 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
       }
     };
 
-    const onMove = (evt: MouseEvent) => {
+    const onMove = (evt: PointerEvent) => {
       if (!cameraRef.current || !rendererRef.current) return;
 
       getMouseNDC(evt);
@@ -599,10 +621,12 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
       r.h = newH;
     };
 
-    const onUp = (evt?: MouseEvent) => {
-      (rendererRef.current?.domElement as any)?.releasePointerCapture?.(
-        (evt as any)?.pointerId
-      );
+    const onUp = (evt?: PointerEvent) => {
+      // ✅ Type assertion cho releasePointerCapture
+      const element = rendererRef.current?.domElement as HTMLElement & {
+        releasePointerCapture?: (pointerId: number) => void;
+      };
+      element?.releasePointerCapture?.((evt as PointerEvent)?.pointerId);
 
       const dragging = draggingRef.current;
       if (dragging && onRoomEdit) {
@@ -647,12 +671,16 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         m.geometry?.dispose?.();
-        // @ts-ignore
+        // ✅ Type assertion cho material
         const mat = m.material as THREE.Material | THREE.Material[] | undefined;
         if (Array.isArray(mat)) mat.forEach((mm) => mm.dispose?.());
         else mat?.dispose?.();
-        // @ts-ignore
-        if (o.type === "Sprite" && o.material?.map) o.material.map.dispose?.();
+        // ✅ Type assertion cho Sprite
+        if (o.type === "Sprite") {
+          const sprite = o as THREE.Sprite;
+          const spriteMat = sprite.material as THREE.SpriteMaterial;
+          spriteMat.map?.dispose?.();
+        }
       });
 
       renderer.dispose();
@@ -858,12 +886,16 @@ const disposeObject = (obj: THREE.Object3D) => {
   obj.traverse((o) => {
     const m = o as THREE.Mesh;
     m.geometry?.dispose?.();
-    // @ts-ignore
+    // ✅ Type assertion cho material
     const mat = m.material as THREE.Material | THREE.Material[] | undefined;
     if (Array.isArray(mat)) mat.forEach((mm) => mm.dispose?.());
     else mat?.dispose?.();
-    // @ts-ignore
-    if (o.type === "Sprite" && o.material?.map) o.material.map.dispose?.();
+    // ✅ Type assertion cho Sprite
+    if (o.type === "Sprite") {
+      const sprite = o as THREE.Sprite;
+      const spriteMat = sprite.material as THREE.SpriteMaterial;
+      spriteMat.map?.dispose?.();
+    }
   });
 };
 
