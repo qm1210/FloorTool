@@ -268,7 +268,7 @@ export default function FloorForm({ onSubmit }: Props) {
               <button
                 type="button"
                 onClick={addRoom}
-                className="flex items-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-sm font-medium text-white shadow transition-colors"
+                className="flex items-center gap-2 rounded-lg bg-blue-600 hover:cursor-pointer hover:bg-blue-700 px-4 py-2.5 text-sm font-medium text-white shadow transition-colors"
               >
                 <span>➕</span>
                 Thêm phòng
@@ -326,7 +326,7 @@ export default function FloorForm({ onSubmit }: Props) {
                         <button
                           type="button"
                           onClick={() => removeRoom(room.id)}
-                          className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-600 transition-colors hover:bg-red-100 hover:border-red-400"
+                          className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-600 transition-colors hover:cursor-pointer hover:bg-red-100 hover:border-red-400"
                         >
                           🗑️ Xóa
                         </button>
@@ -375,7 +375,7 @@ export default function FloorForm({ onSubmit }: Props) {
             <button
               type="submit"
               disabled={errors.length > 0}
-              className="flex items-center gap-3 rounded-lg bg-blue-600 hover:bg-blue-700 px-6 py-3 font-semibold text-white shadow transition-colors disabled:cursor-not-allowed disabled:bg-gray-400 disabled:opacity-50"
+              className="flex items-center gap-3 rounded-lg bg-blue-600 hover:cursor-pointer hover:bg-blue-700 px-6 py-3 font-semibold text-white shadow transition-colors disabled:cursor-not-allowed disabled:bg-gray-400 disabled:opacity-50"
             >
               <span>🎯</span>
               Tạo thiết kế
