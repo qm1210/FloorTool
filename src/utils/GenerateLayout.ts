@@ -12,7 +12,6 @@ export type PlacedRoom = {
   color: string;
   label: string;
 
-  /** Cửa của phòng ở LOCAL-SPACE (để Canvas tự vẽ theo cạnh) */
   rawDoors?: { side: Edge; width: number; offsetRatio: number }[];
 };
 
@@ -211,7 +210,6 @@ function tryFixedLayout(input: FloorInput): LayoutResult | null {
   // 🏠 Case 2: Nhà vuông 7×7m (cửa Bắc)
   if (floorW === 7 && floorH === 7 && mainDoor.edge === "N") {
     const roomMap = new Map(rooms.map((r) => [r.type, r]));
-    const bedrooms = rooms.filter((r) => r.type === "bed");
     if (
       roomMap.has("living") &&
       roomMap.has("bed") &&

@@ -1,4 +1,3 @@
-// src/components/Floor2DCanvas.tsx
 "use client";
 
 import { useEffect, useRef } from "react";
@@ -17,41 +16,67 @@ type Props = {
   height?: number | string;
 };
 
+const Z_STEP = 0.0005;
+const Z_BASE = 0.01;
+
 const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  // singletons
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const contentRef = useRef<THREE.Group | null>(null);
 
-  // runtime
   const roomsRef = useRef<
     Array<{ id: string; mesh: THREE.Mesh; w: number; h: number }>
   >([]);
   const floorSizeRef = useRef({ w: 0, h: 0 });
 
+  const zStackRef = useRef<string[]>([]);
+  const zIndexMapRef = useRef<Map<string, number>>(new Map());
+
+  const hoveredRoomIdRef = useRef<string | null>(null);
+  const lastActiveRoomIdRef = useRef<string | null>(null);
+
   // drag / resize state
   const draggingRef = useRef<null | {
     r: { id: string; mesh: THREE.Mesh; w: number; h: number };
-    offset: THREE.Vector3; // MOVE offset
+    offset: THREE.Vector3;
   }>(null);
 
   const dragModeRef = useRef<Handle>("MOVE");
-  const anchorRef = useRef<{ x: number; y: number } | null>(null); // world
+  const anchorRef = useRef<{ x: number; y: number } | null>(null);
   const startSizeRef = useRef<{ w: number; h: number } | null>(null);
 
-  // camera
   const camScaleRef = useRef(50);
   const autoFitRef = useRef(true);
 
-  // ===== tunables =====
   const MIN_W = 0.9;
   const MIN_H = 0.9;
-  const HANDLE_EPS = 0.05; // phạm vi bắt cạnh/góc
-  const SNAP = 0.25; // snap lưới (m)
-  const WALL_EPS = SNAP * 0.5; // “nam châm” tường khi MOVE
+  const HANDLE_EPS = 0.05; // Phạm vi bắt cạnh/góc
+  const SNAP = 0.25; // Snap lưới (m)
+  const WALL_EPS = SNAP * 0.5; // Nam châm tường
+
+  const bringToFront = (roomId: string) => {
+    if (!zStackRef.current.includes(roomId)) return;
+
+    // Loại bỏ khỏi vị trí hiện tại và đẩy lên cuối mảng (top)
+    zStackRef.current = zStackRef.current.filter((id) => id !== roomId);
+    zStackRef.current.push(roomId);
+
+    zStackRef.current.forEach((id, index) => {
+      zIndexMapRef.current.set(id, index);
+
+      const room = roomsRef.current.find((r) => r.id === id);
+      if (room) {
+        const zPos = Z_BASE + index * Z_STEP;
+        room.mesh.position.setZ(zPos);
+        room.mesh.renderOrder = index;
+      }
+    });
+
+    lastActiveRoomIdRef.current = roomId;
+  };
 
   const applyOrthoFromScale = () => {
     const wrap = wrapRef.current,
@@ -140,7 +165,7 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
       case "SE":
         return "nwse-resize";
       default:
-        return "default";
+        return h === "MOVE" ? "grab" : "default";
     }
   };
 
@@ -194,6 +219,7 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
     doorMesh.position.z = 0.021;
     doorMesh.rotation.z = angle;
     doorMesh.renderOrder = 2;
+    doorMesh.userData.isDoor = true;
   };
 
   const roomFromHitObject = (obj: THREE.Object3D | null) => {
@@ -203,7 +229,58 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
     return roomsRef.current.find((x) => x.mesh === cur);
   };
 
-  // ===== mount once =====
+  // Tìm phòng có z-index cao nhất trong danh sách hits
+  const findTopmostRoom = (hits: THREE.Intersection[]) => {
+    const hitRooms: { id: string; room: any; hit: THREE.Intersection }[] = [];
+
+    for (const hit of hits) {
+      const room = roomFromHitObject(hit.object);
+      if (room) {
+        hitRooms.push({
+          id: room.id,
+          room: room,
+          hit: hit,
+        });
+      }
+    }
+
+    if (hitRooms.length === 0) return null;
+
+    hitRooms.sort((a, b) => {
+      const zIndexA = zIndexMapRef.current.get(a.id) || 0;
+      const zIndexB = zIndexMapRef.current.get(b.id) || 0;
+      return zIndexB - zIndexA;
+    });
+
+    return {
+      room: hitRooms[0].room,
+      hit: hitRooms[0].hit,
+    };
+  };
+
+  const restoreZOrder = () => {
+    // Lọc lại zStack chỉ giữ các ID vẫn còn tồn tại
+    zStackRef.current = zStackRef.current.filter((id) =>
+      roomsRef.current.some((r) => r.id === id)
+    );
+
+    for (const room of roomsRef.current) {
+      if (!zStackRef.current.includes(room.id)) {
+        zStackRef.current.push(room.id);
+      }
+    }
+
+    zStackRef.current.forEach((id, index) => {
+      zIndexMapRef.current.set(id, index);
+      const room = roomsRef.current.find((r) => r.id === id);
+      if (room) {
+        const zPos = Z_BASE + index * Z_STEP;
+        room.mesh.position.setZ(zPos);
+        room.mesh.renderOrder = index;
+      }
+    });
+  };
+
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -291,7 +368,7 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
     const onDown = (evt: MouseEvent) => {
       if (!cameraRef.current || !rendererRef.current) return;
 
-      // Bắt pointer để không “rơi” khi kéo ra ngoài canvas
+      // Bắt pointer để không "rơi" khi kéo ra ngoài canvas
       (rendererRef.current.domElement as any).setPointerCapture?.(
         (evt as any).pointerId
       );
@@ -299,18 +376,24 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
       getMouseNDC(evt);
       ray.setFromCamera(mouse, cameraRef.current);
 
+      // ✅ RAYCAST TẤT CẢ PHÒNG
       const hits = ray.intersectObjects(
         roomsRef.current.map((r) => r.mesh),
-        false
+        true // Recursive để hit cả children
       );
       if (!hits.length) return;
 
-      // ✅ bò lên mesh phòng thực sự
-      const r = roomFromHitObject(hits[0].object);
-      if (!r) return;
+      // ✅ TÌM PHÒNG CÓ Z-INDEX CAO NHẤT
+      const topmost = findTopmostRoom(hits);
+      if (!topmost) return;
+
+      const { room: r, hit: hitInfo } = topmost;
+
+      // ✅ NÂNG PHÒNG LÊN TRÊN CÙNG
+      bringToFront(r.id);
 
       // ✅ dùng đúng worldPoint tại vị trí click
-      const worldPoint = hits[0].point.clone();
+      const worldPoint = hitInfo.point.clone();
 
       // ✅ điểm local đúng từ mesh phòng
       const local = r.mesh.worldToLocal(worldPoint.clone());
@@ -324,6 +407,7 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
 
       if (handle === "MOVE") {
         const offset = new THREE.Vector3().subVectors(r.mesh.position, hit);
+        offset.z = r.mesh.position.z; // ✅ GIỮ Z
         draggingRef.current = { r, offset };
         document.body.style.cursor = "grabbing";
         rendererRef.current.domElement.style.cursor = "grabbing";
@@ -388,20 +472,33 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
 
       // Khi CHƯA kéo: chỉ set cursor chính xác theo handle
       if (!draggingRef.current) {
+        // ✅ RAYCAST VÀ TÌM HIT TOPMOST
         const hits = ray.intersectObjects(
           roomsRef.current.map((r) => r.mesh),
           true
         );
+
         if (hits.length) {
-          const r = roomFromHitObject(hits[0].object);
-          if (r) {
-            const worldPoint = hits[0].point.clone();
+          const topmost = findTopmostRoom(hits);
+          if (topmost) {
+            const { room: r, hit: hitInfo } = topmost;
+
+            // ⭐ NÂNG PHÒNG LÊN KHI HOVER (nếu khác phòng trước đó)
+            if (hoveredRoomIdRef.current !== r.id) {
+              hoveredRoomIdRef.current = r.id;
+              bringToFront(r.id);
+            }
+
+            const worldPoint = hitInfo.point.clone();
             const local = r.mesh.worldToLocal(worldPoint);
             const h = pickHandleLocal(local.x, local.y, r.w, r.h);
             rendererRef.current.domElement.style.cursor = cursorForHandle(h);
             return;
           }
         }
+
+        // Reset hovered room khi con trỏ không nằm trên phòng nào
+        hoveredRoomIdRef.current = null;
         rendererRef.current.domElement.style.cursor = "default";
         return;
       }
@@ -428,7 +525,7 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
         nx = Math.round(nx / SNAP) * SNAP;
         ny = Math.round(ny / SNAP) * SNAP;
 
-        // “nam châm” tường
+        // "nam châm" tường
         const right = halfW - w2,
           left = -halfW + w2,
           top = halfH - h2,
@@ -438,7 +535,8 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
         if (Math.abs(ny - top) < WALL_EPS) ny = top;
         if (Math.abs(ny - bot) < WALL_EPS) ny = bot;
 
-        r.mesh.position.set(nx, ny, 0);
+        // ✅ GIỮ Z-POSITION KHI MOVE
+        r.mesh.position.set(nx, ny, r.mesh.position.z);
         return;
       }
 
@@ -471,7 +569,8 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
       cx = Math.min(Math.max(cx, left), right);
       cy = Math.min(Math.max(cy, bottom), top);
 
-      r.mesh.position.set(cx, cy, 0);
+      // ✅ GIỮ Z-POSITION KHI RESIZE
+      r.mesh.position.set(cx, cy, r.mesh.position.z);
 
       // cập nhật hình học + viền + cửa
       (r.mesh.geometry as THREE.PlaneGeometry).dispose();
@@ -504,6 +603,7 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
       (rendererRef.current?.domElement as any)?.releasePointerCapture?.(
         (evt as any)?.pointerId
       );
+
       const dragging = draggingRef.current;
       if (dragging && onRoomEdit) {
         const { r } = dragging;
@@ -513,7 +613,11 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
           w: r.w,
           h: r.h,
         });
+
+        // ⭐ Đảm bảo phòng vẫn ở trên cùng sau khi edit
+        lastActiveRoomIdRef.current = r.id;
       }
+
       draggingRef.current = null;
       dragModeRef.current = "MOVE";
       document.body.style.cursor = "default";
@@ -563,17 +667,24 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
     };
   }, []);
 
-  // ===== rebuild content when layout changes =====
   useEffect(() => {
     const content = contentRef.current;
     if (!content) return;
+
+    const activeRoomId = lastActiveRoomIdRef.current;
 
     while (content.children.length) {
       const c = content.children.pop()!;
       disposeObject(c);
       content.remove(c);
     }
+
+    const oldZStack = [...zStackRef.current];
+
+    // Reset data
     roomsRef.current = [];
+    zStackRef.current = [];
+    zIndexMapRef.current.clear();
 
     // floor
     const { width: floorW, height: floorH, mainDoor } = layout.floor;
@@ -592,7 +703,7 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
     );
     content.add(floorEdge);
 
-    // cửa chính (xanh lá)
+    // cửa chính
     {
       const md = mainDoor;
       const dx = md.x2 - md.x1;
@@ -611,56 +722,82 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
     }
 
     // rooms
-    for (const r of layout.rooms) {
+    for (const [idx, r] of layout.rooms.entries()) {
       const geom = new THREE.PlaneGeometry(r.w, r.h);
       const mat = new THREE.MeshBasicMaterial({
         color: new THREE.Color(r.color),
         side: THREE.DoubleSide,
-        transparent: true,
+        depthTest: true,
+        depthWrite: true,
+        transparent: false,
         opacity: 0.95,
+
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
       });
       const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(r.x, r.y, 0);
+
+      zStackRef.current.push(r.id);
+
+      const zIndex = idx;
+      zIndexMapRef.current.set(r.id, zIndex);
+      const zPos = Z_BASE + zIndex * Z_STEP;
+
+      mesh.position.set(r.x, r.y, zPos);
+      mesh.renderOrder = zIndex;
       mesh.userData.roomId = r.id;
       content.add(mesh);
 
-      // ✅ GẮN VIỀN VÀO MESH (không add vào content)
-      const frame = new THREE.LineSegments(
-        new THREE.EdgesGeometry(geom),
-        new THREE.LineBasicMaterial({
-          color: 0x000000,
-          transparent: false,
-          opacity: 1.0,
-        })
+      const edgeGeom = new THREE.EdgesGeometry(
+        new THREE.PlaneGeometry(r.w, r.h)
       );
-      frame.position.set(0, 0, 0.01); // ✅ Local position (relative to mesh)
-      frame.renderOrder = 10;
+
+      const frameMat = new THREE.LineBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        depthTest: true,
+        depthWrite: false,
+      });
+
+      const frame = new THREE.LineSegments(edgeGeom, frameMat);
+      frame.position.set(0, 0, 0.0002);
       frame.raycast = () => {};
-      mesh.add(frame); // ✅ Add vào mesh, không phải content
+      frame.userData.isFrame = true;
+      frame.renderOrder = (mesh.renderOrder ?? 0) + 1;
+      mesh.add(frame);
       mesh.userData.frame = frame;
 
       // label
       const sprCanvas = document.createElement("canvas");
       const ctx = sprCanvas.getContext("2d")!;
-      sprCanvas.width = 256;
-      sprCanvas.height = 64;
+      sprCanvas.width = 92;
+      sprCanvas.height = 80;
       ctx.fillStyle = "#000";
-      ctx.font = "20px sans-serif";
+      ctx.font = "16px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(r.label, sprCanvas.width / 2, sprCanvas.height / 2);
+
       const tex = new THREE.CanvasTexture(sprCanvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.generateMipmaps = false;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+
       const sMat = new THREE.SpriteMaterial({
         map: tex,
-        depthTest: false,
+        transparent: true,
+        depthTest: true,
         depthWrite: false,
+        alphaTest: 0.1,
       });
+
       const spr = new THREE.Sprite(sMat);
-      spr.scale.set(2.5, 0.7, 1);
-      spr.position.set(0, 0, 0.02);
+      spr.position.set(0, 0, 0.0001);
+      spr.renderOrder = (mesh.renderOrder ?? 10) + 1;
       mesh.add(spr);
 
-      // doors (LOCAL-SPACE)
       const doorMeshes: THREE.Mesh[] = [];
       if (r.rawDoors?.length) {
         for (const d of r.rawDoors) {
@@ -669,6 +806,8 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
             new THREE.MeshBasicMaterial({
               color: 0x1d4ed8,
               side: THREE.DoubleSide,
+              depthTest: true,
+              depthWrite: false,
             })
           );
           dummy.userData.spec = {
@@ -686,6 +825,22 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
       roomsRef.current.push({ id: r.id, mesh, w: r.w, h: r.h });
     }
 
+    if (oldZStack.length > 0) {
+      const existingIds = new Set(oldZStack);
+      const currentIds = roomsRef.current.map((r) => r.id);
+      const newIds = currentIds.filter((id) => !existingIds.has(id));
+
+      zStackRef.current = oldZStack.filter((id) => currentIds.includes(id));
+
+      zStackRef.current = [...zStackRef.current, ...newIds];
+
+      if (activeRoomId && currentIds.includes(activeRoomId)) {
+        bringToFront(activeRoomId);
+      }
+
+      restoreZOrder();
+    }
+
     autoFitRef.current = true;
     fitViewToFloor(1.0);
   }, [layout]);
@@ -699,7 +854,6 @@ const Floor2DCanvas = ({ layout, onRoomEdit, height = "70vh" }: Props) => {
   );
 };
 
-/** dispose helper */
 const disposeObject = (obj: THREE.Object3D) => {
   obj.traverse((o) => {
     const m = o as THREE.Mesh;

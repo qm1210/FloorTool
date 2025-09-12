@@ -330,8 +330,6 @@ export default function FloorForm({ onSubmit }: Props) {
                           🗑️ Xóa
                         </button>
                       </div>
-
-                      {/* (ĐÃ BỎ) Khu vực cấu hình cửa cho phòng */}
                     </div>
                   );
                 })}
