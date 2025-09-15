@@ -23,7 +23,7 @@ export type LayoutResult = {
 
 const VOID_RATIO = 0.15; // diện tích trống
 const DOOR_W_MIN = 0.6; // cửa chính tối thiểu
-const EDGE_MARGIN = 0.5; // cách mép tường (m)
+const EDGE_MARGIN = 0; // cách mép tường (m)
 const MIN_SIDE = 1; // cạnh nhỏ nhất (m)
 const SHRINK_STEP = 0.95; // dùng khi co ở bước góc
 
@@ -124,55 +124,84 @@ function tryFixedLayout(input: FloorInput): LayoutResult | null {
   const { width: floorW, height: floorH, mainDoor } = input.floor;
   const rooms = input.rooms ?? [];
 
-  // 🏠 Case 1: Nhà ống 10×5m (cửa Tây)
-  if (floorW === 10 && floorH === 5 && mainDoor.edge === "W") {
-    const roomMap = new Map(rooms.map((r) => [r.type, r]));
+  // 🏠 Case 1: Nhà ống 20×5m (cửa Tây)
+  if (floorW === 20 && floorH === 5 && mainDoor.edge === "W") {
+    const roomCounts = rooms.reduce((acc, r) => {
+      acc[r.type] = (acc[r.type] || 0) + 1;
+      return acc;
+    }, {} as Record<RoomType, number>);
+
     if (
-      roomMap.has("living") &&
-      roomMap.has("bed") &&
-      roomMap.has("kitchen") &&
-      roomMap.has("wc")
+      roomCounts.bed === 2 &&
+      roomCounts.wc === 2 &&
+      roomCounts.kitchen === 1 &&
+      roomCounts.living === 1
     ) {
+      const roomsByType = rooms.reduce((acc, r) => {
+        if (!acc[r.type]) acc[r.type] = [];
+        acc[r.type].push(r);
+        return acc;
+      }, {} as Record<RoomType, typeof rooms>);
       const placed: PlacedRoom[] = [
         {
-          id: roomMap.get("living")!.id,
+          id: roomsByType.living[0].id,
           type: "living",
-          x: -3.5,
+          x: -7.0,
           y: 0,
-          w: 3.0,
+          w: 6.0,
           h: 5.0,
           color: ROOM_BASE.living.color,
           label: ROOM_BASE.living.label,
         },
         {
-          id: roomMap.get("bed")!.id,
-          type: "bed",
-          x: 0,
-          y: -0.75,
-          w: 4.0,
-          h: 3.5,
-          color: ROOM_BASE.bed.color,
-          label: `${ROOM_BASE.bed.label}`,
-        },
-        {
-          id: roomMap.get("kitchen")!.id,
+          id: roomsByType.kitchen[0].id,
           type: "kitchen",
-          x: 3.5,
-          y: 1.0,
-          w: 3.0,
-          h: 3.0,
+          x: 8.25,
+          y: 0.75,
+          w: 3.5,
+          h: 3.5,
           color: ROOM_BASE.kitchen.color,
           label: ROOM_BASE.kitchen.label,
         },
         {
-          id: roomMap.get("wc")!.id,
-          type: "wc",
-          x: 3.5,
-          y: -1.5,
+          id: roomsByType.bed[0].id,
+          type: "bed",
+          x: -1.5,
+          y: -0.75,
+          w: 5.0,
+          h: 3.5,
+          color: ROOM_BASE.bed.color,
+          label: `${ROOM_BASE.bed.label} 1`,
+        },
+        {
+          id: roomsByType.bed[1].id,
+          type: "bed",
+          x: 5.0,
+          y: -0.75,
           w: 3.0,
-          h: 2.0,
+          h: 3.5,
+          color: ROOM_BASE.bed.color,
+          label: `${ROOM_BASE.bed.label} 2`,
+        },
+        {
+          id: roomsByType.wc[0].id,
+          type: "wc",
+          x: 2.25,
+          y: -0.75,
+          w: 2.5,
+          h: 3.5,
           color: ROOM_BASE.wc.color,
-          label: ROOM_BASE.wc.label,
+          label: `${ROOM_BASE.wc.label} 1`,
+        },
+        {
+          id: roomsByType.wc[1].id,
+          type: "wc",
+          x: 8.25,
+          y: -1.75,
+          w: 3.5,
+          h: 1.5,
+          color: ROOM_BASE.wc.color,
+          label: `${ROOM_BASE.wc.label} 2`,
         },
       ];
 
@@ -207,55 +236,84 @@ function tryFixedLayout(input: FloorInput): LayoutResult | null {
     }
   }
 
-  // 🏠 Case 2: Nhà vuông 7×7m (cửa Bắc)
-  if (floorW === 7 && floorH === 7 && mainDoor.edge === "N") {
-    const roomMap = new Map(rooms.map((r) => [r.type, r]));
+  // 🏠 Case 2: Nhà vuông 10×10m (cửa Bắc)
+  if (floorW === 10 && floorH === 10 && mainDoor.edge === "N") {
+    const roomCounts = rooms.reduce((acc, r) => {
+      acc[r.type] = (acc[r.type] || 0) + 1;
+      return acc;
+    }, {} as Record<RoomType, number>);
+
     if (
-      roomMap.has("living") &&
-      roomMap.has("bed") &&
-      roomMap.has("kitchen") &&
-      roomMap.has("wc")
+      roomCounts.bed === 2 &&
+      roomCounts.wc === 2 &&
+      roomCounts.kitchen === 1 &&
+      roomCounts.living === 1
     ) {
+      const roomsByType = rooms.reduce((acc, r) => {
+        if (!acc[r.type]) acc[r.type] = [];
+        acc[r.type].push(r);
+        return acc;
+      }, {} as Record<RoomType, typeof rooms>);
       const placed: PlacedRoom[] = [
         {
-          id: roomMap.get("living")!.id,
+          id: roomsByType.living[0].id,
           type: "living",
-          x: 0,
-          y: 2.25,
-          w: 7.0,
-          h: 2.5,
+          x: -2.0,
+          y: 2.0,
+          w: 6.0,
+          h: 6.0,
           color: ROOM_BASE.living.color,
           label: ROOM_BASE.living.label,
         },
         {
-          id: roomMap.get("bed")!.id,
-          type: "bed",
-          x: -2.0,
-          y: -1.25,
-          w: 3.0,
-          h: 4.5,
-          color: ROOM_BASE.bed.color,
-          label: `${ROOM_BASE.bed.label}`,
-        },
-        {
-          id: roomMap.get("kitchen")!.id,
+          id: roomsByType.kitchen[0].id,
           type: "kitchen",
-          x: 2.25,
-          y: -0.5,
-          w: 2.5,
+          x: 3.5,
+          y: -3.5,
+          w: 3.0,
           h: 3.0,
           color: ROOM_BASE.kitchen.color,
           label: ROOM_BASE.kitchen.label,
         },
         {
-          id: roomMap.get("wc")!.id,
-          type: "wc",
-          x: 1.5,
-          y: -2.75,
+          id: roomsByType.bed[0].id,
+          type: "bed",
+          x: 3.0,
+          y: 1.0,
           w: 4.0,
-          h: 1.5,
+          h: 4.0,
+          color: ROOM_BASE.bed.color,
+          label: `${ROOM_BASE.bed.label} 1`,
+        },
+        {
+          id: roomsByType.bed[1].id,
+          type: "bed",
+          x: -3.0,
+          y: -3.5,
+          w: 4.0,
+          h: 3.0,
+          color: ROOM_BASE.bed.color,
+          label: `${ROOM_BASE.bed.label} 2`,
+        },
+        {
+          id: roomsByType.wc[0].id,
+          type: "wc",
+          x: 3.0,
+          y: 4.0,
+          w: 4.0,
+          h: 2.0,
           color: ROOM_BASE.wc.color,
-          label: ROOM_BASE.wc.label,
+          label: `${ROOM_BASE.wc.label} 1`,
+        },
+        {
+          id: roomsByType.wc[1].id,
+          type: "wc",
+          x: 0.5,
+          y: -3.5,
+          w: 3.0,
+          h: 3.0,
+          color: ROOM_BASE.wc.color,
+          label: `${ROOM_BASE.wc.label} 2`,
         },
       ];
 

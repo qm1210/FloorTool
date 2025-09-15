@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { Floor2DHandle } from "./Floor2DCanvas";
 
 export type Edge = "N" | "E" | "S" | "W";
 export type RoomType = "living" | "kitchen" | "bed" | "wc";
@@ -29,6 +30,7 @@ export interface FloorInput {
 
 interface Props {
   onSubmit: (data: FloorInput) => void;
+  canvasRef?: React.MutableRefObject<Floor2DHandle | null>;
 }
 
 const edges: Edge[] = ["N", "E", "S", "W"];
@@ -47,9 +49,9 @@ const roomTypes: { value: RoomType; label: string; icon: string }[] = [
 ];
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-export default function FloorForm({ onSubmit }: Props) {
+export default function FloorForm({ onSubmit, canvasRef }: Props) {
   // Sàn & cửa chính - SỬA: dùng string thay vì number
-  const [width, setWidth] = useState<string>("10");
+  const [width, setWidth] = useState<string>("20");
   const [height, setHeight] = useState<string>("5");
   const [mainEdge, setMainEdge] = useState<Edge>("N");
   const [mainOffset, setMainOffset] = useState<string>("2");
@@ -96,7 +98,6 @@ export default function FloorForm({ onSubmit }: Props) {
     e.preventDefault();
     if (errors.length) return;
 
-    // SỬA: parse sang number khi submit
     const data: FloorInput = {
       floor: {
         width: parseFloat(width),
@@ -109,6 +110,7 @@ export default function FloorForm({ onSubmit }: Props) {
       },
       rooms,
     };
+    canvasRef?.current?.resetCameraPan();
     onSubmit?.(data);
   };
 
@@ -377,7 +379,6 @@ export default function FloorForm({ onSubmit }: Props) {
               disabled={errors.length > 0}
               className="flex items-center gap-3 rounded-lg bg-blue-600 hover:cursor-pointer hover:bg-blue-700 px-6 py-3 font-semibold text-white shadow transition-colors disabled:cursor-not-allowed disabled:bg-gray-400 disabled:opacity-50"
             >
-              <span>🎯</span>
               Tạo thiết kế
             </button>
           </div>
