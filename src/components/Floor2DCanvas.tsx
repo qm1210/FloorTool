@@ -86,7 +86,7 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
     const SNAP = 0.25;
     const WALL_EPS = SNAP * 0.5;
 
-    const bringToFront = useCallback((roomId: string) => {
+    const bringToFront = (roomId: string) => {
       if (!zStackRef.current.includes(roomId)) return;
 
       zStackRef.current = zStackRef.current.filter((id) => id !== roomId);
@@ -104,9 +104,9 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
       });
 
       lastActiveRoomIdRef.current = roomId;
-    }, []);
+    };
 
-    const applyOrthoFromScale = useCallback(() => {
+    const applyOrthoFromScale = () => {
       const wrap = wrapRef.current,
         camera = cameraRef.current,
         renderer = rendererRef.current;
@@ -119,72 +119,71 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
       camera.top = h / s;
       camera.bottom = h / -s;
       camera.updateProjectionMatrix();
+    };
+
+    const fitViewToFloor: FitViewToFloor = useCallback((padding = 1.0) => {
+      const wrap = wrapRef.current,
+        camera = cameraRef.current;
+      if (!wrap || !camera) return;
+      const wpx = wrap.clientWidth,
+        hpx = wrap.clientHeight || window.innerHeight;
+      const halfX = floorSizeRef.current.w / 2 + padding;
+      const halfY = floorSizeRef.current.h / 2 + padding;
+      const next = Math.min(
+        wpx / Math.max(halfX, 0.001),
+        hpx / Math.max(halfY, 0.001)
+      );
+      const MAX = next * 4,
+        MIN = next * 0.25;
+      fitViewToFloor._min = MIN;
+      fitViewToFloor._max = MAX;
+      camScaleRef.current = next;
+      // ✅ RESET CAMERA POSITION KHI FIT VIEW
+      if (camera && !cameraPanRef.current?.isPanning) {
+        camera.position.x = 0;
+        camera.position.y = 0;
+      }
+      applyOrthoFromScale();
     }, []);
 
-    const fitViewToFloor: FitViewToFloor = useCallback(
-      (padding = 1.0) => {
-        const wrap = wrapRef.current,
-          camera = cameraRef.current;
-        if (!wrap || !camera) return;
-        const wpx = wrap.clientWidth,
-          hpx = wrap.clientHeight || window.innerHeight;
-        const halfX = floorSizeRef.current.w / 2 + padding;
-        const halfY = floorSizeRef.current.h / 2 + padding;
-        const next = Math.min(
-          wpx / Math.max(halfX, 0.001),
-          hpx / Math.max(halfY, 0.001)
-        );
-        const MAX = next * 4,
-          MIN = next * 0.25;
-        fitViewToFloor._min = MIN;
-        fitViewToFloor._max = MAX;
-        camScaleRef.current = next;
-        // ✅ RESET CAMERA POSITION KHI FIT VIEW
-        if (camera && !cameraPanRef.current?.isPanning) {
-          camera.position.x = 0;
-          camera.position.y = 0;
-        }
-        applyOrthoFromScale();
-      },
-      [applyOrthoFromScale]
-    );
+    const pickHandleLocal = (
+      localX: number,
+      localY: number,
+      w: number,
+      h: number
+    ): Handle => {
+      const halfW = w / 2,
+        halfH = h / 2;
 
-    const pickHandleLocal = useCallback(
-      (localX: number, localY: number, w: number, h: number): Handle => {
-        const halfW = w / 2,
-          halfH = h / 2;
-
-        if (
-          Math.abs(localX) > halfW + HANDLE_EPS ||
-          Math.abs(localY) > halfH + HANDLE_EPS
-        ) {
-          return "MOVE";
-        }
-
-        const nearL = Math.abs(localX + halfW) <= HANDLE_EPS;
-        const nearR = Math.abs(localX - halfW) <= HANDLE_EPS;
-        const nearB = Math.abs(localY + halfH) <= HANDLE_EPS;
-        const nearT = Math.abs(localY - halfH) <= HANDLE_EPS;
-
-        const inX = Math.abs(localX) <= halfW;
-        const inY = Math.abs(localY) <= halfH;
-
-        if (nearT && nearR) return "NE";
-        if (nearT && nearL) return "NW";
-        if (nearB && nearR) return "SE";
-        if (nearB && nearL) return "SW";
-
-        if (nearT && inX) return "N";
-        if (nearB && inX) return "S";
-        if (nearR && inY) return "E";
-        if (nearL && inY) return "W";
-
+      if (
+        Math.abs(localX) > halfW + HANDLE_EPS ||
+        Math.abs(localY) > halfH + HANDLE_EPS
+      ) {
         return "MOVE";
-      },
-      [HANDLE_EPS]
-    );
+      }
 
-    const cursorForHandle = useCallback((h: Handle) => {
+      const nearL = Math.abs(localX + halfW) <= HANDLE_EPS;
+      const nearR = Math.abs(localX - halfW) <= HANDLE_EPS;
+      const nearB = Math.abs(localY + halfH) <= HANDLE_EPS;
+      const nearT = Math.abs(localY - halfH) <= HANDLE_EPS;
+
+      const inX = Math.abs(localX) <= halfW;
+      const inY = Math.abs(localY) <= halfH;
+
+      if (nearT && nearR) return "NE";
+      if (nearT && nearL) return "NW";
+      if (nearB && nearR) return "SE";
+      if (nearB && nearL) return "SW";
+
+      if (nearT && inX) return "N";
+      if (nearB && inX) return "S";
+      if (nearR && inY) return "E";
+      if (nearL && inY) return "W";
+
+      return "MOVE";
+    };
+
+    const cursorForHandle = (h: Handle) => {
       switch (h) {
         case "N":
         case "S":
@@ -201,114 +200,108 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         default:
           return h === "MOVE" ? "grab" : "default";
       }
-    }, []);
+    };
 
-    const positionDoorLocal = useCallback(
-      (
-        mesh: THREE.Mesh,
-        doorMesh: THREE.Mesh,
-        spec: { side: Side; width: number; offsetRatio: number }
-      ) => {
-        const geom = mesh.geometry as THREE.PlaneGeometry;
-        const w: number = (
-          geom as THREE.PlaneGeometry & {
-            parameters: { width: number; height: number };
-          }
-        ).parameters.width;
-        const h: number = (
-          geom as THREE.PlaneGeometry & {
-            parameters: { width: number; height: number };
-          }
-        ).parameters.height;
-
-        const along = spec.side === "N" || spec.side === "S" ? w : h;
-        const doorW = Math.max(0.6, Math.min(spec.width, along - 0.05));
-        const maxOff = Math.max(0, along - doorW);
-        const off = Math.max(0, Math.min(1, spec.offsetRatio)) * maxOff;
-
-        let A: THREE.Vector3, B: THREE.Vector3;
-        if (spec.side === "N") {
-          const y = h / 2,
-            x1 = -w / 2 + off;
-          A = new THREE.Vector3(x1, y, 0.02);
-          B = new THREE.Vector3(x1 + doorW, y, 0.02);
-        } else if (spec.side === "S") {
-          const y = -h / 2,
-            x1 = -w / 2 + off;
-          A = new THREE.Vector3(x1, y, 0.02);
-          B = new THREE.Vector3(x1 + doorW, y, 0.02);
-        } else if (spec.side === "E") {
-          const x = w / 2,
-            y1 = -h / 2 + off;
-          A = new THREE.Vector3(x, y1, 0.02);
-          B = new THREE.Vector3(x, y1 + doorW, 0.02);
-        } else {
-          const x = -w / 2,
-            y1 = -h / 2 + off;
-          A = new THREE.Vector3(x, y1, 0.02);
-          B = new THREE.Vector3(x, y1 + doorW, 0.02);
+    const positionDoorLocal = (
+      mesh: THREE.Mesh,
+      doorMesh: THREE.Mesh,
+      spec: { side: Side; width: number; offsetRatio: number }
+    ) => {
+      const geom = mesh.geometry as THREE.PlaneGeometry;
+      const w: number = (
+        geom as THREE.PlaneGeometry & {
+          parameters: { width: number; height: number };
         }
+      ).parameters.width;
+      const h: number = (
+        geom as THREE.PlaneGeometry & {
+          parameters: { width: number; height: number };
+        }
+      ).parameters.height;
 
-        const mid = new THREE.Vector3().addVectors(A, B).multiplyScalar(0.5);
-        const dir = new THREE.Vector3().subVectors(B, A).normalize();
-        const angle = Math.atan2(dir.y, dir.x);
-        const doorLen = A.distanceTo(B);
+      const along = spec.side === "N" || spec.side === "S" ? w : h;
+      const doorW = Math.max(0.6, Math.min(spec.width, along - 0.05));
+      const maxOff = Math.max(0, along - doorW);
+      const off = Math.max(0, Math.min(1, spec.offsetRatio)) * maxOff;
 
-        (doorMesh.geometry as THREE.PlaneGeometry).dispose?.();
-        doorMesh.geometry = new THREE.PlaneGeometry(doorLen, 0.08);
-        doorMesh.position.copy(mid);
-        doorMesh.position.z = 0.021;
-        doorMesh.rotation.z = angle;
-        doorMesh.renderOrder = 2;
-        doorMesh.userData.isDoor = true;
-      },
-      []
-    );
+      let A: THREE.Vector3, B: THREE.Vector3;
+      if (spec.side === "N") {
+        const y = h / 2,
+          x1 = -w / 2 + off;
+        A = new THREE.Vector3(x1, y, 0.02);
+        B = new THREE.Vector3(x1 + doorW, y, 0.02);
+      } else if (spec.side === "S") {
+        const y = -h / 2,
+          x1 = -w / 2 + off;
+        A = new THREE.Vector3(x1, y, 0.02);
+        B = new THREE.Vector3(x1 + doorW, y, 0.02);
+      } else if (spec.side === "E") {
+        const x = w / 2,
+          y1 = -h / 2 + off;
+        A = new THREE.Vector3(x, y1, 0.02);
+        B = new THREE.Vector3(x, y1 + doorW, 0.02);
+      } else {
+        const x = -w / 2,
+          y1 = -h / 2 + off;
+        A = new THREE.Vector3(x, y1, 0.02);
+        B = new THREE.Vector3(x, y1 + doorW, 0.02);
+      }
 
-    const roomFromHitObject = useCallback((obj: THREE.Object3D | null) => {
+      const mid = new THREE.Vector3().addVectors(A, B).multiplyScalar(0.5);
+      const dir = new THREE.Vector3().subVectors(B, A).normalize();
+      const angle = Math.atan2(dir.y, dir.x);
+      const doorLen = A.distanceTo(B);
+
+      (doorMesh.geometry as THREE.PlaneGeometry).dispose?.();
+      doorMesh.geometry = new THREE.PlaneGeometry(doorLen, 0.08);
+      doorMesh.position.copy(mid);
+      doorMesh.position.z = 0.021;
+      doorMesh.rotation.z = angle;
+      doorMesh.renderOrder = 2;
+      doorMesh.userData.isDoor = true;
+    };
+
+    const roomFromHitObject = (obj: THREE.Object3D | null) => {
       let cur: THREE.Object3D | null = obj;
       while (cur && !(cur.userData as { roomId?: string }).roomId)
         cur = cur.parent;
       if (!cur) return null;
       return roomsRef.current.find((x) => x.mesh === cur);
-    }, []);
+    };
 
-    const findTopmostRoom = useCallback(
-      (hits: THREE.Intersection[]) => {
-        const hitRooms: {
-          id: string;
-          room: { id: string; mesh: THREE.Mesh; w: number; h: number };
-          hit: THREE.Intersection;
-        }[] = [];
+    const findTopmostRoom = (hits: THREE.Intersection[]) => {
+      const hitRooms: {
+        id: string;
+        room: { id: string; mesh: THREE.Mesh; w: number; h: number };
+        hit: THREE.Intersection;
+      }[] = [];
 
-        for (const hit of hits) {
-          const room = roomFromHitObject(hit.object);
-          if (room) {
-            hitRooms.push({
-              id: room.id,
-              room: room,
-              hit: hit,
-            });
-          }
+      for (const hit of hits) {
+        const room = roomFromHitObject(hit.object);
+        if (room) {
+          hitRooms.push({
+            id: room.id,
+            room: room,
+            hit: hit,
+          });
         }
+      }
 
-        if (hitRooms.length === 0) return null;
+      if (hitRooms.length === 0) return null;
 
-        hitRooms.sort((a, b) => {
-          const zIndexA = zIndexMapRef.current.get(a.id) || 0;
-          const zIndexB = zIndexMapRef.current.get(b.id) || 0;
-          return zIndexB - zIndexA;
-        });
+      hitRooms.sort((a, b) => {
+        const zIndexA = zIndexMapRef.current.get(a.id) || 0;
+        const zIndexB = zIndexMapRef.current.get(b.id) || 0;
+        return zIndexB - zIndexA;
+      });
 
-        return {
-          room: hitRooms[0].room,
-          hit: hitRooms[0].hit,
-        };
-      },
-      [roomFromHitObject]
-    );
+      return {
+        room: hitRooms[0].room,
+        hit: hitRooms[0].hit,
+      };
+    };
 
-    const restoreZOrder = useCallback(() => {
+    const restoreZOrder = () => {
       zStackRef.current = zStackRef.current.filter((id) =>
         roomsRef.current.some((r) => r.id === id)
       );
@@ -328,27 +321,24 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           room.mesh.renderOrder = index;
         }
       });
-    }, []);
+    };
 
-    const getWorldPosition = useCallback(
-      (evt: PointerEvent): THREE.Vector2 | null => {
-        const camera = cameraRef.current;
-        const renderer = rendererRef.current;
-        if (!camera || !renderer) return null;
+    const getWorldPosition = (evt: PointerEvent): THREE.Vector2 | null => {
+      const camera = cameraRef.current;
+      const renderer = rendererRef.current;
+      if (!camera || !renderer) return null;
 
-        const rect = renderer.domElement.getBoundingClientRect();
-        const ndcX = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
-        const ndcY = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+      const rect = renderer.domElement.getBoundingClientRect();
+      const ndcX = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+      const ndcY = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
 
-        const worldX =
-          (ndcX * (camera.right - camera.left)) / 2 + camera.position.x;
-        const worldY =
-          (ndcY * (camera.top - camera.bottom)) / 2 + camera.position.y;
+      const worldX =
+        (ndcX * (camera.right - camera.left)) / 2 + camera.position.x;
+      const worldY =
+        (ndcY * (camera.top - camera.bottom)) / 2 + camera.position.y;
 
-        return new THREE.Vector2(worldX, worldY);
-      },
-      []
-    );
+      return new THREE.Vector2(worldX, worldY);
+    };
 
     const resetCameraPan = useCallback(() => {
       cameraPanRef.current = null;
@@ -363,9 +353,7 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
     useImperativeHandle(
       ref,
       () => ({
-        fitView: (padding = 1.0) => {
-          fitViewToFloor(padding);
-        },
+        fitView: (padding = 1.0) => fitViewToFloor(padding),
         resetAndFit: (padding = 1.0) => {
           autoFitRef.current = true;
           fitViewToFloor(padding);
@@ -378,18 +366,14 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
     useEffect(() => {
       const wrap = wrapRef.current;
       if (!wrap) return;
-
-      // ✅ COPY REF VALUE ĐỂ TRÁNH WARNING
-      const wrapElement = wrap;
-
-      wrapElement.replaceChildren();
+      wrap.replaceChildren();
 
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0xffffff);
       sceneRef.current = scene;
 
-      const w = wrapElement.clientWidth;
-      const h = wrapElement.clientHeight || window.innerHeight;
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight || window.innerHeight;
 
       const camera = new THREE.OrthographicCamera(
         w / -camScaleRef.current,
@@ -409,7 +393,7 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
       renderer.domElement.style.width = "100%";
       renderer.domElement.style.height = "100%";
       rendererRef.current = renderer;
-      wrapElement.appendChild(renderer.domElement);
+      wrap.appendChild(renderer.domElement);
 
       // grid
       const grid = new THREE.GridHelper(200, 200, 0xdddddd, 0xdddddd);
@@ -715,7 +699,7 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
               width: number;
               offsetRatio: number;
             };
-            if (spec) positionDoorLocal(dm.parent as THREE.Mesh, dm, spec);
+            if (spec) positionDoorLocal(r.mesh, dm, spec);
           }
         }
 
@@ -803,23 +787,11 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         contentRef.current = null;
         roomsRef.current = [];
         draggingRef.current = null;
-        cameraPanRef.current = null;
+        cameraPanRef.current = null; // ✅ RESET CAMERA PAN STATE
 
-        // ✅ SỬ DỤNG WRAP ELEMENT ĐÃ COPY
-        if (wrapElement) wrapElement.replaceChildren();
+        if (wrapRef.current) wrapRef.current.replaceChildren();
       };
-    }, [
-      fitViewToFloor,
-      applyOrthoFromScale,
-      findTopmostRoom,
-      bringToFront,
-      pickHandleLocal,
-      cursorForHandle,
-      getWorldPosition,
-      positionDoorLocal,
-      onRoomEdit,
-      WALL_EPS,
-    ]);
+    }, []);
 
     useEffect(() => {
       const content = contentRef.current;
@@ -1009,14 +981,7 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         // Chỉ update projection matrix
         applyOrthoFromScale();
       }
-    }, [
-      layout,
-      fitViewToFloor,
-      applyOrthoFromScale,
-      positionDoorLocal,
-      bringToFront,
-      restoreZOrder,
-    ]);
+    }, [layout]);
 
     return (
       <div
@@ -1028,7 +993,6 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
   }
 );
 
-// ✅ THÊM DISPLAY NAME
 Floor2DCanvas.displayName = "Floor2DCanvas";
 
 const disposeObject = (obj: THREE.Object3D) => {
