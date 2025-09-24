@@ -1,20 +1,55 @@
 "use client";
 
-import { useState, useRef } from "react"; // ✅ THÊM useRef
+import { useState, useRef } from "react";
+import { toast } from "react-toastify"; // ✅ Thêm import
 import FloorForm, { type FloorInput } from "@/components/FloorForm";
-import generateLayout, { type LayoutResult } from "@/utils/GenerateLayout";
-import Floor2DCanvas, { type Floor2DHandle } from "@/components/Floor2DCanvas"; // ✅ IMPORT Floor2DHandle
+import generateLayout, {
+  type LayoutResult,
+  validateBeforeGenerate, // ✅ Thêm import validation
+} from "@/utils/GenerateLayout";
+import Floor2DCanvas, { type Floor2DHandle } from "@/components/Floor2DCanvas";
 
-export default function DesignPage() {
+function DesignPage() {
   const [layout, setLayout] = useState<LayoutResult | null>(null);
-  const canvasRef = useRef<Floor2DHandle>(null); // ✅ TẠO REF
+  const [isGenerating, setIsGenerating] = useState(false);
+  const canvasRef = useRef<Floor2DHandle>(null);
 
-  const handleSubmit = (data: FloorInput) => {
-    const out = generateLayout(data);
-    setLayout(out);
+  const handleSubmit = async (data: FloorInput) => {
+    setIsGenerating(true);
+
+    try {
+      const validation = await validateBeforeGenerate(data);
+
+      if (!validation.isValid) {
+        toast.error(
+          `Không đủ diện tích để tạo ${data.rooms?.length || 0} phòng!`,
+          {
+            position: "top-right",
+            autoClose: 8000,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+            style: {
+              whiteSpace: "pre-line",
+              maxWidth: "450px",
+            },
+          }
+        );
+
+        return;
+      }
+
+      const out = await generateLayout(data, true);
+      setLayout(out);
+    } catch (error) {
+      console.error("❌ Generation failed:", error);
+      toast.error("Có lỗi xảy ra khi tạo thiết kế!");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  // nhận patch từ canvas và merge vào layout hiện có
   const handleRoomEdit = (
     id: string,
     patch: { x?: number; y?: number; w?: number; h?: number }
@@ -32,13 +67,26 @@ export default function DesignPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-7xl p-6">
         <FloorForm onSubmit={handleSubmit} canvasRef={canvasRef} />
-        {layout && (
+
+        {/* ✅ Loading indicator */}
+        {isGenerating && (
+          <div className="mt-6 rounded-lg border shadow bg-white p-6 text-center">
+            <div className="animate-spin w-6 h-6 border-3 border-blue-500 border-t-transparent rounded-full mx-auto mb-3"></div>
+            <div className="text-gray-600">
+              Đang validate và tạo thiết kế...
+            </div>
+          </div>
+        )}
+
+        {layout && !isGenerating && (
           <div className="mt-6 rounded-lg border shadow bg-white">
             <Floor2DCanvas
-              ref={canvasRef} // ✅ ATTACH REF
+              ref={canvasRef}
               layout={layout}
               onRoomEdit={handleRoomEdit}
-              height="80vh"
+              showWalls={true}
+              exteriorWallThickness={0.2}
+              interiorWallThickness={0.1}
             />
           </div>
         )}
@@ -46,3 +94,5 @@ export default function DesignPage() {
     </div>
   );
 }
+
+export default DesignPage;

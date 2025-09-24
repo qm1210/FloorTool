@@ -26,6 +26,10 @@ export interface FloorInput {
     mainDoor: { edge: Edge; offset: number; width: number };
   };
   rooms: RoomInput[];
+  walls: {
+    exteriorThickness: number;
+    interiorThickness: number;
+  };
 }
 
 interface Props {
@@ -47,26 +51,31 @@ const roomTypes: { value: RoomType; label: string; icon: string }[] = [
   { value: "bed", label: "Phòng ngủ", icon: "🛏️" },
   { value: "wc", label: "Nhà vệ sinh", icon: "🚿" },
 ];
+
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-export default function FloorForm({ onSubmit, canvasRef }: Props) {
-  // Sàn & cửa chính - SỬA: dùng string thay vì number
+const FloorForm = ({ onSubmit, canvasRef }: Props) => {
   const [width, setWidth] = useState<string>("20");
   const [height, setHeight] = useState<string>("5");
   const [mainEdge, setMainEdge] = useState<Edge>("N");
   const [mainOffset, setMainOffset] = useState<string>("2");
   const [mainWidth, setMainWidth] = useState<string>("1");
 
-  // Danh sách phòng
+  const [exteriorWallThickness, setExteriorWallThickness] =
+    useState<string>("0.2");
+  const [interiorWallThickness, setInteriorWallThickness] =
+    useState<string>("0.1");
+
   const [rooms, setRooms] = useState<RoomInput[]>([]);
 
-  // Validate cơ bản
   const errors = useMemo(() => {
     const e: string[] = [];
     const w = parseFloat(width);
     const h = parseFloat(height);
     const mw = parseFloat(mainWidth);
     const mo = parseFloat(mainOffset);
+    const extWall = parseFloat(exteriorWallThickness);
+    const intWall = parseFloat(interiorWallThickness);
 
     if (!Number.isFinite(w) || w <= 0) e.push("Chiều ngang sàn phải lớn hơn 0");
     if (!Number.isFinite(h) || h <= 0) e.push("Chiều dọc sàn phải lớn hơn 0");
@@ -74,13 +83,42 @@ export default function FloorForm({ onSubmit, canvasRef }: Props) {
       e.push("Bề rộng cửa chính tối thiểu 0.6m");
     if (!Number.isFinite(mo) || mo < 0) e.push("Vị trí cửa chính phải ≥ 0");
 
+    if (!Number.isFinite(extWall) || extWall < 0.05 || extWall > 0.5) {
+      e.push("Độ dày tường ngoài phải từ 0.05m đến 0.5m");
+    }
+    if (!Number.isFinite(intWall) || intWall < 0.05 || intWall > 0.3) {
+      e.push("Độ dày tường trong phải từ 0.05m đến 0.3m");
+    }
+
+    if (
+      Number.isFinite(w) &&
+      Number.isFinite(extWall) &&
+      extWall * 2 >= w * 0.8
+    ) {
+      e.push("Tường ngoài quá dày so với chiều ngang sàn");
+    }
+    if (
+      Number.isFinite(h) &&
+      Number.isFinite(extWall) &&
+      extWall * 2 >= h * 0.8
+    ) {
+      e.push("Tường ngoài quá dày so với chiều dọc sàn");
+    }
+
     rooms.forEach((r, i) => {
       if (!r.type) e.push(`Phòng ${i + 1}: chưa chọn loại phòng`);
     });
     return e;
-  }, [width, height, mainWidth, mainOffset, rooms]);
+  }, [
+    width,
+    height,
+    mainWidth,
+    mainOffset,
+    exteriorWallThickness,
+    interiorWallThickness,
+    rooms,
+  ]);
 
-  /* ==== handlers ==== */
   const addRoom = () => {
     const id = `room_${uid()}`;
     setRooms((prev) => [...prev, { id, type: "living", doors: [] }]);
@@ -109,12 +147,15 @@ export default function FloorForm({ onSubmit, canvasRef }: Props) {
         },
       },
       rooms,
+      walls: {
+        exteriorThickness: parseFloat(exteriorWallThickness),
+        interiorThickness: parseFloat(interiorWallThickness),
+      },
     };
     canvasRef?.current?.resetCameraPan();
     onSubmit?.(data);
   };
 
-  // Safe helpers để tránh NaN
   const safeParseFloat = (value: string, fallback: number = 0): number => {
     const parsed = parseFloat(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -123,7 +164,16 @@ export default function FloorForm({ onSubmit, canvasRef }: Props) {
   const getDisplayArea = (): string => {
     const w = safeParseFloat(width);
     const h = safeParseFloat(height);
-    return w > 0 && h > 0 ? (w * h).toFixed(1) : "--";
+    return w > 0 && h > 0 ? (w * h).toFixed(2) : "--";
+  };
+
+  const getUsableArea = (): string => {
+    const w = safeParseFloat(width);
+    const h = safeParseFloat(height);
+    const extWall = safeParseFloat(exteriorWallThickness);
+    const usableW = Math.max(0, w - 2 * extWall);
+    const usableH = Math.max(0, h - 2 * extWall);
+    return usableW > 0 && usableH > 0 ? (usableW * usableH).toFixed(2) : "--";
   };
 
   return (
@@ -192,11 +242,19 @@ export default function FloorForm({ onSubmit, canvasRef }: Props) {
                     />
                   </div>
                 </div>
-                <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-xs text-blue-700">
-                  💡 Diện tích:{" "}
-                  <span className="text-blue-800 font-semibold">
-                    {getDisplayArea()} m²
-                  </span>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-blue-700">
+                    💡 Tổng diện tích:{" "}
+                    <span className="text-blue-800 font-semibold">
+                      {getDisplayArea()} m²
+                    </span>
+                  </div>
+                  <div className="rounded-lg bg-green-50 border border-green-200 p-3 text-green-700">
+                    🏠 Diện tích khả dụng:{" "}
+                    <span className="text-green-800 font-semibold">
+                      {getUsableArea()} m²
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -253,6 +311,84 @@ export default function FloorForm({ onSubmit, canvasRef }: Props) {
             </div>
           </div>
 
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-600 text-white">
+                🧱
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Cấu hình tường
+                </h2>
+                <p className="text-sm text-gray-600">
+                  Thiết lập độ dày tường ngoài và tường phòng
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm text-gray-600">
+                  Độ dày tường ngoài (m)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0.05}
+                  max={0.5}
+                  value={exteriorWallThickness}
+                  onChange={(e) => setExteriorWallThickness(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-500 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-300 transition"
+                  placeholder="0.15"
+                />
+                <p className="mt-1 text-xs text-gray-500">Khuyến nghị: 0.2m</p>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-gray-600">
+                  Độ dày tường phòng (m)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0.05}
+                  max={0.3}
+                  value={interiorWallThickness}
+                  onChange={(e) => setInteriorWallThickness(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-500 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-300 transition"
+                  placeholder="0.10"
+                />
+                <p className="mt-1 text-xs text-gray-500">Khuyến nghị: 0.1m</p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg bg-orange-50 border border-orange-200 p-4">
+              <div className="grid grid-cols-3 gap-4 text-xs text-orange-700">
+                <div>
+                  <span className="font-medium">🏗️ Tường ngoài:</span>
+                  <div className="text-orange-800 font-semibold">
+                    {(parseFloat(exteriorWallThickness) * 100).toFixed(0)}cm
+                  </div>
+                </div>
+                <div>
+                  <span className="font-medium">🏠 Tường phòng:</span>
+                  <div className="text-orange-800 font-semibold">
+                    {(parseFloat(interiorWallThickness) * 100).toFixed(0)}cm
+                  </div>
+                </div>
+                <div>
+                  <span className="font-medium">📉 Mất diện tích:</span>
+                  <div className="text-orange-800 font-semibold">
+                    {(
+                      parseFloat(getDisplayArea()) - parseFloat(getUsableArea())
+                    ).toFixed(1)}
+                    m²
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Phòng */}
           <div className="bg-white rounded-lg shadow p-6">
             <div className="mb-6 flex items-center justify-between">
@@ -296,7 +432,6 @@ export default function FloorForm({ onSubmit, canvasRef }: Props) {
                       key={room.id}
                       className="group rounded-lg border border-gray-200 bg-gray-50 p-5 hover:border-gray-300 hover:bg-white transition-all"
                     >
-                      {/* Header phòng */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
                           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white font-bold">
@@ -360,11 +495,19 @@ export default function FloorForm({ onSubmit, canvasRef }: Props) {
 
           {/* Submit */}
           <div className="flex items-center justify-between rounded-lg bg-white shadow border p-6">
-            <div className="text-sm text-gray-600">
+            <div className="text-sm text-gray-600 space-y-1">
               <p>
                 ✅ Sàn:{" "}
                 <span className="text-blue-600 font-semibold">
                   {width}×{height}m ({getDisplayArea()}m²)
+                </span>
+              </p>
+              <p>
+                🧱 Tường:{" "}
+                <span className="text-orange-600 font-semibold">
+                  Ngoài {(parseFloat(exteriorWallThickness) * 100).toFixed(0)}cm
+                  / Trong {(parseFloat(interiorWallThickness) * 100).toFixed(0)}
+                  cm
                 </span>
               </p>
               <p>
@@ -386,4 +529,6 @@ export default function FloorForm({ onSubmit, canvasRef }: Props) {
       </div>
     </div>
   );
-}
+};
+
+export default FloorForm;

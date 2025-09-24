@@ -9,6 +9,8 @@ import {
 } from "react";
 import * as THREE from "three";
 import type { LayoutResult } from "@/utils/GenerateLayout";
+import RoomTooltip from "./RoomTooltip";
+import { useRoomTooltip } from "@/hooks/useRoomTooltip";
 
 export type Floor2DHandle = {
   fitView: (padding?: number) => void;
@@ -19,16 +21,18 @@ export type Floor2DHandle = {
 type Handle = "MOVE" | "N" | "E" | "S" | "W" | "NE" | "NW" | "SE" | "SW";
 type Side = "N" | "E" | "S" | "W";
 
-type Props = {
+interface Props {
   layout: LayoutResult;
   onRoomEdit?: (
     id: string,
     patch: { x?: number; y?: number; w?: number; h?: number }
   ) => void;
   height?: number | string;
-};
+  showWalls?: boolean;
+  exteriorWallThickness?: number;
+  interiorWallThickness?: number;
+}
 
-// ✅ Interface cho fitViewToFloor với min/max properties
 interface FitViewToFloor {
   (padding?: number): void;
   _min?: number;
@@ -39,7 +43,17 @@ const Z_STEP = 0.0005;
 const Z_BASE = 0.01;
 
 const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
-  ({ layout, onRoomEdit, height = "70vh" }, ref) => {
+  (
+    {
+      layout,
+      onRoomEdit,
+      height = "70vh",
+      showWalls = true,
+      exteriorWallThickness = 0.2,
+      interiorWallThickness = 0.1,
+    },
+    ref
+  ) => {
     const wrapRef = useRef<HTMLDivElement | null>(null);
 
     const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -60,14 +74,12 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
     const hoveredRoomIdRef = useRef<string | null>(null);
     const lastActiveRoomIdRef = useRef<string | null>(null);
 
-    // ✅ THÊM STATE CHO CAMERA PAN
     const cameraPanRef = useRef<{
       isPanning: boolean;
       startPosition: { x: number; y: number };
       startCameraPosition: { x: number; y: number };
     } | null>(null);
 
-    // drag / resize state
     const draggingRef = useRef<null | {
       r: { id: string; mesh: THREE.Mesh; w: number; h: number };
       offset: THREE.Vector3;
@@ -80,11 +92,258 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
     const camScaleRef = useRef(50);
     const autoFitRef = useRef(true);
 
-    const MIN_W = 0.9;
-    const MIN_H = 0.9;
+    const {
+      tooltip,
+      showTooltip,
+      hideTooltip,
+      updateTooltipPosition,
+      updateTooltipContent,
+    } = useRoomTooltip();
+
+    const MIN_W = 1;
+    const MIN_H = 1;
     const HANDLE_EPS = 0.05;
-    const SNAP = 0.25;
+    const SNAP = 0.1;
     const WALL_EPS = SNAP * 0.5;
+
+    const EXTERIOR_WALL_THICKNESS = exteriorWallThickness;
+    const INTERIOR_WALL_THICKNESS = interiorWallThickness;
+    const INTERIOR_WALL_COLOR = 0x8b8b8b;
+    const EXTERIOR_WALL_COLOR = 0x4a4a4a;
+
+    const createExteriorWalls = (floorW: number, floorH: number) => {
+      const walls: THREE.Mesh[] = [];
+      const wallMaterial = new THREE.MeshBasicMaterial({
+        color: EXTERIOR_WALL_COLOR,
+        side: THREE.DoubleSide,
+      });
+
+      const halfW = floorW / 2;
+      const halfH = floorH / 2;
+      const t = EXTERIOR_WALL_THICKNESS;
+
+      const topWall = new THREE.Mesh(
+        new THREE.PlaneGeometry(floorW, t),
+        wallMaterial
+      );
+      topWall.position.set(0, halfH - t / 2, 5);
+      topWall.userData.isExteriorWall = true;
+      walls.push(topWall);
+
+      const bottomWall = new THREE.Mesh(
+        new THREE.PlaneGeometry(floorW, t),
+        wallMaterial
+      );
+      bottomWall.position.set(0, -halfH + t / 2, 5);
+      bottomWall.userData.isExteriorWall = true;
+      walls.push(bottomWall);
+
+      // Tường trái
+      const leftWall = new THREE.Mesh(
+        new THREE.PlaneGeometry(t, floorH - 2 * t),
+        wallMaterial
+      );
+      leftWall.position.set(-halfW + t / 2, 0, 5);
+      leftWall.userData.isExteriorWall = true;
+      walls.push(leftWall);
+
+      // Tường phải
+      const rightWall = new THREE.Mesh(
+        new THREE.PlaneGeometry(t, floorH - 2 * t),
+        wallMaterial
+      );
+      rightWall.position.set(halfW - t / 2, 0, 5);
+      rightWall.userData.isExteriorWall = true;
+      walls.push(rightWall);
+
+      return walls;
+    };
+
+    const createRoomWalls = (
+      roomMesh: THREE.Mesh,
+      roomW: number,
+      roomH: number,
+      roomId: string,
+      doors?: any[]
+    ) => {
+      const walls: THREE.Mesh[] = [];
+      const wallMaterial = new THREE.MeshBasicMaterial({
+        color: INTERIOR_WALL_COLOR,
+        side: THREE.DoubleSide,
+      });
+
+      const halfW = roomW / 2;
+      const halfH = roomH / 2;
+      const thickness = INTERIOR_WALL_THICKNESS;
+
+      const wallConfigs = [
+        {
+          // Tường trên
+          geometry: new THREE.PlaneGeometry(roomW + 2 * +thickness, thickness),
+          position: new THREE.Vector3(0, halfH + thickness / 2, 0.0003),
+          side: "N" as Side,
+        },
+        {
+          // Tường dưới
+          geometry: new THREE.PlaneGeometry(roomW + 2 * thickness, thickness),
+          position: new THREE.Vector3(0, -halfH - thickness / 2, 0.0003),
+          side: "S" as Side,
+        },
+        {
+          // Tường trái
+          geometry: new THREE.PlaneGeometry(thickness, roomH),
+          position: new THREE.Vector3(-halfW - thickness / 2, 0, 0.0003),
+          side: "W" as Side,
+        },
+        {
+          // Tường phải
+          geometry: new THREE.PlaneGeometry(thickness, roomH),
+          position: new THREE.Vector3(halfW + thickness / 2, 0, 0.0003),
+          side: "E" as Side,
+        },
+      ];
+
+      for (const config of wallConfigs) {
+        const hasDoor = doors?.some((door) => door.side === config.side);
+
+        if (!hasDoor) {
+          const wall = new THREE.Mesh(config.geometry, wallMaterial);
+          wall.position.copy(config.position);
+          wall.userData.isRoomWall = true;
+          wall.userData.roomId = roomId;
+          wall.userData.side = config.side;
+          wall.raycast = () => {};
+          roomMesh.add(wall);
+          walls.push(wall);
+        } else {
+          const door = doors!.find((d) => d.side === config.side);
+          if (door) {
+            const wallSegments = createWallWithDoorOpening(
+              config,
+              door,
+              roomW,
+              roomH,
+              wallMaterial,
+              roomId
+            );
+            wallSegments.forEach((segment) => {
+              roomMesh.add(segment);
+              walls.push(segment);
+            });
+          }
+        }
+      }
+
+      return walls;
+    };
+
+    const createWallWithDoorOpening = (
+      wallConfig: any,
+      door: any,
+      roomW: number,
+      roomH: number,
+      material: THREE.Material,
+      roomId: string
+    ) => {
+      const segments: THREE.Mesh[] = [];
+      const { side } = wallConfig;
+      const thickness = INTERIOR_WALL_THICKNESS;
+
+      const along = side === "N" || side === "S" ? roomW : roomH;
+      const doorW = Math.max(0.6, Math.min(door.width, along - 0.05));
+      const maxOff = Math.max(0, along - doorW);
+      const off = Math.max(0, Math.min(1, door.offsetRatio)) * maxOff;
+
+      let doorStart: number, doorEnd: number;
+
+      if (side === "N" || side === "S") {
+        // Tường ngang
+        doorStart = -roomW / 2 + off;
+        doorEnd = doorStart + doorW;
+
+        // Tường trái cửa
+        if (doorStart > -roomW / 2) {
+          const leftWallW = doorStart - -roomW / 2;
+          const leftWall = new THREE.Mesh(
+            new THREE.PlaneGeometry(leftWallW, thickness),
+            material
+          );
+          leftWall.position.set(
+            (-roomW / 2 + doorStart) / 2,
+            side === "N" ? roomH / 2 : -roomH / 2,
+            0.0003
+          );
+          leftWall.userData.isRoomWall = true;
+          leftWall.userData.roomId = roomId;
+          leftWall.userData.side = side;
+          leftWall.raycast = () => {};
+          segments.push(leftWall);
+        }
+
+        // Tường phải cửa
+        if (doorEnd < roomW / 2) {
+          const rightWallW = roomW / 2 - doorEnd;
+          const rightWall = new THREE.Mesh(
+            new THREE.PlaneGeometry(rightWallW, thickness),
+            material
+          );
+          rightWall.position.set(
+            (doorEnd + roomW / 2) / 2,
+            side === "N" ? roomH / 2 : -roomH / 2,
+            0.0003
+          );
+          rightWall.userData.isRoomWall = true;
+          rightWall.userData.roomId = roomId;
+          rightWall.userData.side = side;
+          rightWall.raycast = () => {};
+          segments.push(rightWall);
+        }
+      } else {
+        // Tường dọc
+        doorStart = -roomH / 2 + off;
+        doorEnd = doorStart + doorW;
+
+        // Tường dưới cửa
+        if (doorStart > -roomH / 2) {
+          const bottomWallH = doorStart - -roomH / 2;
+          const bottomWall = new THREE.Mesh(
+            new THREE.PlaneGeometry(thickness, bottomWallH),
+            material
+          );
+          bottomWall.position.set(
+            side === "E" ? roomW / 2 : -roomW / 2,
+            (-roomH / 2 + doorStart) / 2,
+            0.0003
+          );
+          bottomWall.userData.isRoomWall = true;
+          bottomWall.userData.roomId = roomId;
+          bottomWall.userData.side = side;
+          bottomWall.raycast = () => {};
+          segments.push(bottomWall);
+        }
+
+        // Tường trên cửa
+        if (doorEnd < roomH / 2) {
+          const topWallH = roomH / 2 - doorEnd;
+          const topWall = new THREE.Mesh(
+            new THREE.PlaneGeometry(thickness, topWallH),
+            material
+          );
+          topWall.position.set(
+            side === "E" ? roomW / 2 : -roomW / 2,
+            (doorEnd + roomH / 2) / 2,
+            0.0003
+          );
+          topWall.userData.isRoomWall = true;
+          topWall.userData.roomId = roomId;
+          topWall.userData.side = side;
+          topWall.raycast = () => {};
+          segments.push(topWall);
+        }
+      }
+
+      return segments;
+    };
 
     const bringToFront = (roomId: string) => {
       if (!zStackRef.current.includes(roomId)) return;
@@ -138,7 +397,6 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
       fitViewToFloor._min = MIN;
       fitViewToFloor._max = MAX;
       camScaleRef.current = next;
-      // ✅ RESET CAMERA POSITION KHI FIT VIEW
       if (camera && !cameraPanRef.current?.isPanning) {
         camera.position.x = 0;
         camera.position.y = 0;
@@ -420,18 +678,57 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
       window.addEventListener("resize", onResize);
 
       const onWheel = (e: WheelEvent) => {
-        if (!rendererRef.current) return;
+        if (!rendererRef.current || !cameraRef.current || !wrapRef.current)
+          return;
         e.preventDefault();
+
+        const camera = cameraRef.current;
+        const renderer = rendererRef.current;
+        const wrap = wrapRef.current;
+
+        // Lấy vị trí con trỏ trong NDC (-1 đến 1)
+        const rect = renderer.domElement.getBoundingClientRect();
+        const mouseX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        // Tính vị trí world của con trỏ TRƯỚC khi zoom
+        const worldBeforeX =
+          (mouseX * (camera.right - camera.left)) / 2 + camera.position.x;
+        const worldBeforeY =
+          (mouseY * (camera.top - camera.bottom)) / 2 + camera.position.y;
+
+        // Áp dụng zoom
         const ZOOM_SPEED = 0.0015;
         const factor = Math.exp(-e.deltaY * ZOOM_SPEED);
         const min = fitViewToFloor._min ?? 5;
         const max = fitViewToFloor._max ?? 1000;
-        camScaleRef.current = Math.min(
-          max,
-          Math.max(min, camScaleRef.current * factor)
-        );
+
+        const oldScale = camScaleRef.current;
+        const newScale = Math.min(max, Math.max(min, oldScale * factor));
+        camScaleRef.current = newScale;
+
+        // Cập nhật camera bounds với scale mới
+        const w = wrap.clientWidth;
+        const h = wrap.clientHeight || window.innerHeight;
+        camera.left = w / -newScale;
+        camera.right = w / newScale;
+        camera.top = h / newScale;
+        camera.bottom = h / -newScale;
+
+        // Tính vị trí world của con trỏ SAU khi zoom (nếu camera không di chuyển)
+        const worldAfterX =
+          (mouseX * (camera.right - camera.left)) / 2 + camera.position.x;
+        const worldAfterY =
+          (mouseY * (camera.top - camera.bottom)) / 2 + camera.position.y;
+
+        // Điều chỉnh camera để giữ nguyên vị trí world của con trỏ
+        camera.position.x += worldBeforeX - worldAfterX;
+        camera.position.y += worldBeforeY - worldAfterY;
+
+        // Cập nhật projection matrix
+        camera.updateProjectionMatrix();
+
         autoFitRef.current = false;
-        applyOrthoFromScale();
       };
       renderer.domElement.addEventListener("wheel", onWheel, {
         passive: false,
@@ -448,7 +745,6 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         mouse.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
       };
 
-      // ✅ SỬA ĐỔI HÀM onDown ĐỂ XỬ LÝ CAMERA PAN
       const onDown = (evt: PointerEvent) => {
         if (!cameraRef.current || !rendererRef.current) return;
 
@@ -460,14 +756,12 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         getMouseNDC(evt);
         ray.setFromCamera(mouse, cameraRef.current);
 
-        // Raycast tất cả phòng
         const hits = ray.intersectObjects(
           roomsRef.current.map((r) => r.mesh),
           true
         );
 
         if (hits.length > 0) {
-          // ✅ CÓ PHÒNG ĐƯỢC CLICK - XỬ LÝ ROOM INTERACTION
           const topmost = findTopmostRoom(hits);
           if (!topmost) return;
 
@@ -482,13 +776,33 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           if (!ray.ray.intersectPlane(planeZ, hit)) return;
 
           if (handle === "MOVE") {
+            // ✅ Ẩn tooltip khi move
+            hideTooltip();
+            hoveredRoomIdRef.current = null;
+
             const offset = new THREE.Vector3().subVectors(r.mesh.position, hit);
             offset.z = r.mesh.position.z;
             draggingRef.current = { r, offset };
             document.body.style.cursor = "grabbing";
             rendererRef.current.domElement.style.cursor = "grabbing";
           } else {
-            // Resize mode
+            // ✅ HIỂN thị tooltip khi bắt đầu resize
+            const roomData = layout.rooms.find((room) => room.id === r.id);
+            if (roomData) {
+              const rect = wrapRef.current!.getBoundingClientRect();
+              showTooltip(
+                evt.clientX - rect.left,
+                evt.clientY - rect.top,
+                roomData.label,
+                r.w,
+                r.h,
+                INTERIOR_WALL_THICKNESS,
+                EXTERIOR_WALL_THICKNESS
+              );
+              hoveredRoomIdRef.current = r.id;
+            }
+
+            // Xử lý resize
             draggingRef.current = { r, offset: new THREE.Vector3() };
             startSizeRef.current = { w: r.w, h: r.h };
 
@@ -496,6 +810,7 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
               halfH = r.h / 2;
             let ax = 0,
               ay = 0;
+
             switch (handle) {
               case "N":
                 ax = 0;
@@ -530,6 +845,7 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
                 ay = halfH;
                 break;
             }
+
             const anchorLocal = new THREE.Vector3(ax, ay, 0);
             const anchorWorld = anchorLocal.applyMatrix4(r.mesh.matrixWorld);
             anchorRef.current = { x: anchorWorld.x, y: anchorWorld.y };
@@ -539,7 +855,10 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
             rendererRef.current.domElement.style.cursor = cur;
           }
         } else {
-          // ✅ KHÔNG CÓ PHÒNG NÀO - BẮT ĐẦU CAMERA PAN
+          // ✅ Ẩn tooltip khi bắt đầu pan camera
+          hideTooltip();
+          hoveredRoomIdRef.current = null;
+
           const worldPos = getWorldPosition(evt);
           if (worldPos) {
             cameraPanRef.current = {
@@ -550,23 +869,21 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
                 y: cameraRef.current.position.y,
               },
             };
-            autoFitRef.current = false; // Tắt auto fit khi pan thủ công
+            autoFitRef.current = false;
             document.body.style.cursor = "move";
             rendererRef.current.domElement.style.cursor = "move";
           }
         }
       };
 
-      // ✅ SỬA ĐỔI HÀM onMove ĐỂ XỬ LÝ CAMERA PAN
       const onMove = (evt: PointerEvent) => {
         if (!cameraRef.current || !rendererRef.current) return;
 
-        // ✅ XỬ LÝ CAMERA PAN
+        // ✅ Xử lý camera pan
         if (cameraPanRef.current?.isPanning) {
           const deltaX = evt.clientX - cameraPanRef.current.startPosition.x;
           const deltaY = evt.clientY - cameraPanRef.current.startPosition.y;
 
-          // Chuyển đổi pixel movement thành world movement
           const camera = cameraRef.current;
           const wrap = wrapRef.current!;
           const worldDeltaX =
@@ -574,7 +891,6 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           const worldDeltaY =
             -(deltaY / wrap.clientHeight) * (camera.top - camera.bottom);
 
-          // Cập nhật vị trí camera
           camera.position.x =
             cameraPanRef.current.startCameraPosition.x - worldDeltaX;
           camera.position.y =
@@ -583,130 +899,220 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           return;
         }
 
+        // ✅ Setup raycaster
         getMouseNDC(evt);
         ray.setFromCamera(mouse, cameraRef.current);
 
-        // Khi CHƯA kéo: chỉ set cursor chính xác theo handle
-        if (!draggingRef.current) {
-          const hits = ray.intersectObjects(
-            roomsRef.current.map((r) => r.mesh),
-            true
-          );
+        // ✅ Xử lý khi đang drag phòng
+        if (draggingRef.current) {
+          if (!ray.ray.intersectPlane(planeZ, hit)) return;
 
-          if (hits.length) {
-            const topmost = findTopmostRoom(hits);
-            if (topmost) {
-              const { room: r, hit: hitInfo } = topmost;
+          const mode = dragModeRef.current;
+          const ctx = draggingRef.current!;
+          const { r, offset } = ctx;
 
-              if (hoveredRoomIdRef.current !== r.id) {
-                hoveredRoomIdRef.current = r.id;
-                bringToFront(r.id);
+          if (mode === "MOVE") {
+            // ✅ Logic move phòng
+            const target = new THREE.Vector3().addVectors(hit, offset);
+
+            const halfW = floorSizeRef.current.w / 2;
+            const halfH = floorSizeRef.current.h / 2;
+            const w2 = r.w / 2;
+            const h2 = r.h / 2;
+
+            // Giới hạn trong sàn nhà
+            let nx = Math.max(-halfW + w2, Math.min(halfW - w2, target.x));
+            let ny = Math.max(-halfH + h2, Math.min(halfH - h2, target.y));
+
+            // Snap to grid
+            nx = Math.round(nx / SNAP) * SNAP;
+            ny = Math.round(ny / SNAP) * SNAP;
+
+            // Snap to walls
+            const right = halfW - w2;
+            const left = -halfW + w2;
+            const top = halfH - h2;
+            const bot = -halfH + h2;
+
+            if (Math.abs(nx - right) < WALL_EPS) nx = right;
+            if (Math.abs(nx - left) < WALL_EPS) nx = left;
+            if (Math.abs(ny - top) < WALL_EPS) ny = top;
+            if (Math.abs(ny - bot) < WALL_EPS) ny = bot;
+
+            r.mesh.position.set(nx, ny, r.mesh.position.z);
+            return;
+          }
+
+          // ✅ Logic resize phòng với tooltip real-time
+          const anchor = anchorRef.current!;
+          const dx = hit.x - anchor.x;
+          const dy = hit.y - anchor.y;
+
+          let newW = startSizeRef.current!.w;
+          let newH = startSizeRef.current!.h;
+
+          const sgnX = mode.includes("E") ? 1 : mode.includes("W") ? -1 : 0;
+          const sgnY = mode.includes("N") ? 1 : mode.includes("S") ? -1 : 0;
+
+          if (sgnX !== 0) newW = Math.max(MIN_W, Math.abs(dx));
+          if (sgnY !== 0) newH = Math.max(MIN_H, Math.abs(dy));
+
+          // Snap kích thước
+          newW = Math.max(MIN_W, Math.round(newW / SNAP) * SNAP);
+          newH = Math.max(MIN_H, Math.round(newH / SNAP) * SNAP);
+
+          // Tính vị trí mới
+          let cx = anchor.x + (sgnX * newW) / 2;
+          let cy = anchor.y + (sgnY * newH) / 2;
+
+          // Giới hạn trong sàn nhà
+          const halfW = floorSizeRef.current.w / 2;
+          const halfH = floorSizeRef.current.h / 2;
+          const left = -halfW + newW / 2;
+          const right = halfW - newW / 2;
+          const bottom = -halfH + newH / 2;
+          const top = halfH - newH / 2;
+
+          cx = Math.min(Math.max(cx, left), right);
+          cy = Math.min(Math.max(cy, bottom), top);
+
+          // Cập nhật geometry và position
+          r.mesh.position.set(cx, cy, r.mesh.position.z);
+
+          (r.mesh.geometry as THREE.PlaneGeometry).dispose();
+          const newGeom = new THREE.PlaneGeometry(newW, newH);
+          r.mesh.geometry = newGeom;
+
+          // ✅ Rebuild walls nếu cần
+          if (showWalls) {
+            // Xóa tường cũ
+            const oldWalls = r.mesh.children.filter(
+              (child: any) => child.userData.isRoomWall
+            );
+            oldWalls.forEach((wall) => {
+              const wallMesh = wall as THREE.Mesh;
+              if (wallMesh.geometry) {
+                wallMesh.geometry.dispose?.();
               }
+              r.mesh.remove(wall);
+            });
 
-              const worldPoint = hitInfo.point.clone();
-              const local = r.mesh.worldToLocal(worldPoint);
-              const h = pickHandleLocal(local.x, local.y, r.w, r.h);
-              rendererRef.current.domElement.style.cursor = cursorForHandle(h);
-              return;
+            // Tạo tường mới
+            const roomData = layout.rooms.find((room) => room.id === r.id);
+            const doors = roomData?.rawDoors || [];
+            createRoomWalls(r.mesh, newW, newH, r.id, doors);
+          }
+
+          // ✅ Rebuild doors nếu có
+          const doorMeshes: THREE.Mesh[] | undefined = r.mesh.userData.doors;
+          if (doorMeshes && doorMeshes.length) {
+            for (const dm of doorMeshes) {
+              const spec = dm.userData.spec as {
+                side: Side;
+                width: number;
+                offsetRatio: number;
+              };
+              if (spec) positionDoorLocal(r.mesh, dm, spec);
             }
           }
 
-          hoveredRoomIdRef.current = null;
-          rendererRef.current.domElement.style.cursor = "default";
+          // Cập nhật kích thước trong ref
+          r.w = newW;
+          r.h = newH;
+
+          // ✅ Update tooltip real-time khi resize
+          const roomData = layout.rooms.find((room) => room.id === r.id);
+          if (roomData) {
+            const rect = wrapRef.current!.getBoundingClientRect();
+
+            if (tooltip.visible) {
+              // Update nội dung và vị trí
+              updateTooltipContent(
+                roomData.label,
+                newW,
+                newH,
+                INTERIOR_WALL_THICKNESS,
+                EXTERIOR_WALL_THICKNESS
+              );
+              updateTooltipPosition(
+                evt.clientX - rect.left,
+                evt.clientY - rect.top
+              );
+            } else {
+              // Show tooltip mới
+              showTooltip(
+                evt.clientX - rect.left,
+                evt.clientY - rect.top,
+                roomData.label,
+                newW,
+                newH,
+                INTERIOR_WALL_THICKNESS,
+                EXTERIOR_WALL_THICKNESS
+              );
+            }
+          }
+
           return;
         }
 
-        // ĐANG kéo phòng
-        if (!ray.ray.intersectPlane(planeZ, hit)) return;
+        // ✅ Xử lý hover detection khi KHÔNG drag
+        const hits = ray.intersectObjects(
+          roomsRef.current.map((r) => r.mesh),
+          false // Không recursive để tránh hit walls/doors
+        );
 
-        const mode = dragModeRef.current;
-        const ctx = draggingRef.current!;
-        const { r, offset } = ctx;
+        if (hits.length > 0) {
+          // ✅ Sử dụng findTopmostRoom để lấy phòng đúng
+          const topmost = findTopmostRoom(hits);
+          if (topmost) {
+            const { room: r, hit: hitInfo } = topmost;
 
-        if (mode === "MOVE") {
-          const target = new THREE.Vector3().addVectors(hit, offset);
+            // ✅ Show tooltip khi hover vào phòng mới
+            if (hoveredRoomIdRef.current !== r.id) {
+              hoveredRoomIdRef.current = r.id;
+              bringToFront(r.id);
 
-          const halfW = floorSizeRef.current.w / 2,
-            halfH = floorSizeRef.current.h / 2;
-          const w2 = r.w / 2,
-            h2 = r.h / 2;
+              const roomData = layout.rooms.find(
+                (layoutRoom) => layoutRoom.id === r.id
+              );
+              if (roomData) {
+                const rect = wrapRef.current!.getBoundingClientRect();
+                showTooltip(
+                  evt.clientX - rect.left,
+                  evt.clientY - rect.top,
+                  roomData.label,
+                  r.w,
+                  r.h,
+                  INTERIOR_WALL_THICKNESS,
+                  EXTERIOR_WALL_THICKNESS
+                );
+              }
+            } else {
+              // ✅ Update position khi hover trong cùng phòng
+              const rect = wrapRef.current!.getBoundingClientRect();
+              updateTooltipPosition(
+                evt.clientX - rect.left,
+                evt.clientY - rect.top
+              );
+            }
 
-          let nx = Math.max(-halfW + w2, Math.min(halfW - w2, target.x));
-          let ny = Math.max(-halfH + h2, Math.min(halfH - h2, target.y));
-
-          nx = Math.round(nx / SNAP) * SNAP;
-          ny = Math.round(ny / SNAP) * SNAP;
-
-          const right = halfW - w2,
-            left = -halfW + w2,
-            top = halfH - h2,
-            bot = -halfH + h2;
-          if (Math.abs(nx - right) < WALL_EPS) nx = right;
-          if (Math.abs(nx - left) < WALL_EPS) nx = left;
-          if (Math.abs(ny - top) < WALL_EPS) ny = top;
-          if (Math.abs(ny - bot) < WALL_EPS) ny = bot;
-
-          r.mesh.position.set(nx, ny, r.mesh.position.z);
-          return;
-        }
-
-        // RESIZE logic
-        const anchor = anchorRef.current!;
-        const dx = hit.x - anchor.x;
-        const dy = hit.y - anchor.y;
-
-        let newW = startSizeRef.current!.w;
-        let newH = startSizeRef.current!.h;
-
-        const sgnX = mode.includes("E") ? 1 : mode.includes("W") ? -1 : 0;
-        const sgnY = mode.includes("N") ? 1 : mode.includes("S") ? -1 : 0;
-
-        if (sgnX !== 0) newW = Math.max(MIN_W, Math.abs(dx));
-        if (sgnY !== 0) newH = Math.max(MIN_H, Math.abs(dy));
-
-        newW = Math.max(MIN_W, Math.round(newW / SNAP) * SNAP);
-        newH = Math.max(MIN_H, Math.round(newH / SNAP) * SNAP);
-
-        let cx = anchor.x + (sgnX * newW) / 2;
-        let cy = anchor.y + (sgnY * newH) / 2;
-
-        const halfW = floorSizeRef.current.w / 2,
-          halfH = floorSizeRef.current.h / 2;
-        const left = -halfW + newW / 2,
-          right = halfW - newW / 2;
-        const bottom = -halfH + newH / 2,
-          top = halfH - newH / 2;
-        cx = Math.min(Math.max(cx, left), right);
-        cy = Math.min(Math.max(cy, bottom), top);
-
-        r.mesh.position.set(cx, cy, r.mesh.position.z);
-
-        (r.mesh.geometry as THREE.PlaneGeometry).dispose();
-        const newGeom = new THREE.PlaneGeometry(newW, newH);
-        r.mesh.geometry = newGeom;
-
-        const frame = r.mesh.userData.frame as THREE.LineSegments | undefined;
-        if (frame) {
-          (frame.geometry as THREE.EdgesGeometry)?.dispose?.();
-          frame.geometry = new THREE.EdgesGeometry(newGeom);
-        }
-
-        const doorMeshes: THREE.Mesh[] | undefined = r.mesh.userData.doors;
-        if (doorMeshes && doorMeshes.length) {
-          for (const dm of doorMeshes) {
-            const spec = dm.userData.spec as {
-              side: Side;
-              width: number;
-              offsetRatio: number;
-            };
-            if (spec) positionDoorLocal(r.mesh, dm, spec);
+            // ✅ Update cursor dựa trên handle position
+            const worldPoint = hitInfo.point.clone();
+            const local = r.mesh.worldToLocal(worldPoint);
+            const handle = pickHandleLocal(local.x, local.y, r.w, r.h);
+            rendererRef.current.domElement.style.cursor =
+              cursorForHandle(handle);
+            return;
           }
         }
 
-        r.w = newW;
-        r.h = newH;
+        // ✅ Không hover vào phòng nào - reset state
+        if (hoveredRoomIdRef.current !== null) {
+          hideTooltip();
+          hoveredRoomIdRef.current = null;
+          rendererRef.current.domElement.style.cursor = "default";
+        }
       };
-
       const onUp = (evt?: PointerEvent) => {
         const element = rendererRef.current?.domElement as HTMLElement & {
           releasePointerCapture?: (pointerId: number) => void;
@@ -715,7 +1121,6 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           element?.releasePointerCapture?.(evt.pointerId);
         }
 
-        // ✅ KẾT THÚC CAMERA PAN
         if (cameraPanRef.current?.isPanning) {
           cameraPanRef.current = null;
           document.body.style.cursor = "default";
@@ -724,7 +1129,6 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           return;
         }
 
-        // ✅ KẾT THÚC ROOM DRAG/RESIZE
         const dragging = draggingRef.current;
         if (dragging && onRoomEdit) {
           const { r } = dragging;
@@ -743,9 +1147,20 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         document.body.style.cursor = "default";
         if (rendererRef.current)
           rendererRef.current.domElement.style.cursor = "default";
+
+        hideTooltip();
+      };
+
+      const onLeave = () => {
+        hideTooltip();
+        hoveredRoomIdRef.current = null;
+        if (rendererRef.current) {
+          rendererRef.current.domElement.style.cursor = "default";
+        }
       };
 
       renderer.domElement.addEventListener("pointerdown", onDown);
+      renderer.domElement.addEventListener("pointerleave", onLeave);
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
 
@@ -763,16 +1178,24 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         renderer.domElement.removeEventListener("pointerdown", onDown);
+        renderer.domElement.removeEventListener("pointerleave", onLeave);
 
         scene.traverse((o) => {
-          const m = o as THREE.Mesh;
-          m.geometry?.dispose?.();
-          const mat = m.material as
+          const mesh = o as THREE.Mesh;
+          if (mesh.geometry) {
+            mesh.geometry.dispose?.();
+          }
+
+          const mat = mesh.material as
             | THREE.Material
             | THREE.Material[]
             | undefined;
-          if (Array.isArray(mat)) mat.forEach((mm) => mm.dispose?.());
-          else mat?.dispose?.();
+          if (Array.isArray(mat)) {
+            mat.forEach((material) => material.dispose?.());
+          } else if (mat) {
+            mat.dispose?.();
+          }
+
           if (o.type === "Sprite") {
             const sprite = o as THREE.Sprite;
             const spriteMat = sprite.material as THREE.SpriteMaterial;
@@ -787,11 +1210,12 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         contentRef.current = null;
         roomsRef.current = [];
         draggingRef.current = null;
-        cameraPanRef.current = null; // ✅ RESET CAMERA PAN STATE
+        cameraPanRef.current = null;
+        hideTooltip();
 
         if (wrapRef.current) wrapRef.current.replaceChildren();
       };
-    }, []);
+    }, [showTooltip, hideTooltip, updateTooltipPosition]);
 
     useEffect(() => {
       const content = contentRef.current;
@@ -836,6 +1260,12 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
       );
       content.add(floorEdge);
 
+      // ✅ THÊM TƯỜNG NGOÀI
+      if (showWalls) {
+        const exteriorWalls = createExteriorWalls(floorW, floorH);
+        exteriorWalls.forEach((wall) => content.add(wall));
+      }
+
       // cửa chính
       {
         const md = mainDoor;
@@ -864,7 +1294,6 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           depthWrite: true,
           transparent: false,
           opacity: 0.95,
-
           polygonOffset: true,
           polygonOffsetFactor: 1,
           polygonOffsetUnits: 1,
@@ -882,24 +1311,10 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         mesh.userData.roomId = r.id;
         content.add(mesh);
 
-        const edgeGeom = new THREE.EdgesGeometry(
-          new THREE.PlaneGeometry(r.w, r.h)
-        );
-
-        const frameMat = new THREE.LineBasicMaterial({
-          color: 0x000000,
-          transparent: true,
-          depthTest: true,
-          depthWrite: false,
-        });
-
-        const frame = new THREE.LineSegments(edgeGeom, frameMat);
-        frame.position.set(0, 0, 0.0002);
-        frame.raycast = () => {};
-        frame.userData.isFrame = true;
-        frame.renderOrder = (mesh.renderOrder ?? 0) + 1;
-        mesh.add(frame);
-        mesh.userData.frame = frame;
+        if (showWalls) {
+          const doors = r.rawDoors || [];
+          createRoomWalls(mesh, r.w, r.h, r.id, doors);
+        }
 
         // label
         const sprCanvas = document.createElement("canvas");
@@ -964,7 +1379,6 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         const newIds = currentIds.filter((id) => !existingIds.has(id));
 
         zStackRef.current = oldZStack.filter((id) => currentIds.includes(id));
-
         zStackRef.current = [...zStackRef.current, ...newIds];
 
         if (activeRoomId && currentIds.includes(activeRoomId)) {
@@ -978,17 +1392,24 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
         autoFitRef.current = true;
         fitViewToFloor(1.0);
       } else {
-        // Chỉ update projection matrix
         applyOrthoFromScale();
       }
-    }, [layout]);
+    }, [layout, showWalls, exteriorWallThickness, interiorWallThickness]);
 
     return (
       <div
         ref={wrapRef}
         className="relative w-full overflow-hidden rounded-lg border border-gray-300 bg-white shadow"
         style={{ height }}
-      />
+      >
+        {/* ✅ Truyền containerRef */}
+        <RoomTooltip
+          data={tooltip}
+          showArea={true}
+          containerRef={wrapRef}
+          className="font-sans"
+        />
+      </div>
     );
   }
 );
@@ -997,11 +1418,18 @@ Floor2DCanvas.displayName = "Floor2DCanvas";
 
 const disposeObject = (obj: THREE.Object3D) => {
   obj.traverse((o) => {
-    const m = o as THREE.Mesh;
-    m.geometry?.dispose?.();
-    const mat = m.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(mat)) mat.forEach((mm) => mm.dispose?.());
-    else mat?.dispose?.();
+    const mesh = o as THREE.Mesh;
+    if (mesh.geometry) {
+      mesh.geometry.dispose?.();
+    }
+
+    const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+    if (Array.isArray(mat)) {
+      mat.forEach((material) => material.dispose?.());
+    } else if (mat) {
+      mat.dispose?.();
+    }
+
     if (o.type === "Sprite") {
       const sprite = o as THREE.Sprite;
       const spriteMat = sprite.material as THREE.SpriteMaterial;
