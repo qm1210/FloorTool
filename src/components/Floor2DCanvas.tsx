@@ -912,8 +912,8 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           if (mode === "MOVE") {
             const target = new THREE.Vector3().addVectors(hit, offset);
 
-            const halfW = floorSizeRef.current.w / 2;
-            const halfH = floorSizeRef.current.h / 2;
+            const halfW = floorSizeRef.current.w / 2 - EXTERIOR_WALL_THICKNESS;
+            const halfH = floorSizeRef.current.h / 2 - EXTERIOR_WALL_THICKNESS;
             const w2 = r.w / 2;
             const h2 = r.h / 2;
 
@@ -956,8 +956,8 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           let cx = anchor.x + (sgnX * newW) / 2;
           let cy = anchor.y + (sgnY * newH) / 2;
 
-          const halfW = floorSizeRef.current.w / 2;
-          const halfH = floorSizeRef.current.h / 2;
+          const halfW = floorSizeRef.current.w / 2 - EXTERIOR_WALL_THICKNESS;
+          const halfH = floorSizeRef.current.h / 2 - EXTERIOR_WALL_THICKNESS;
           const left = -halfW + newW / 2;
           const right = halfW - newW / 2;
           const bottom = -halfH + newH / 2;
