@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { toast } from "react-toastify"; // ✅ Thêm import
+import { toast } from "react-toastify";
 import FloorForm, { type FloorInput } from "@/components/FloorForm";
 import generateLayout, {
   type LayoutResult,
-  validateBeforeGenerate, // ✅ Thêm import validation
+  validateBeforeGenerate,
 } from "@/utils/GenerateLayout";
 import Floor2DCanvas, { type Floor2DHandle } from "@/components/Floor2DCanvas";
 
@@ -14,9 +14,17 @@ function DesignPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const canvasRef = useRef<Floor2DHandle>(null);
 
+  // ✅ NEW: lưu độ dày tường để truyền xuống Canvas
+  const [wallConfig, setWallConfig] = useState<{
+    exteriorThickness: number;
+    interiorThickness: number;
+  }>({
+    exteriorThickness: 0.2,
+    interiorThickness: 0.1,
+  });
+
   const handleSubmit = async (data: FloorInput) => {
     setIsGenerating(true);
-
     try {
       const validation = await validateBeforeGenerate(data);
 
@@ -30,15 +38,16 @@ function DesignPage() {
             closeOnClick: true,
             pauseOnHover: true,
             draggable: true,
-            style: {
-              whiteSpace: "pre-line",
-              maxWidth: "450px",
-            },
+            style: { whiteSpace: "pre-line", maxWidth: "450px" },
           }
         );
-
         return;
       }
+
+      setWallConfig({
+        exteriorThickness: data.walls.exteriorThickness,
+        interiorThickness: data.walls.interiorThickness,
+      });
 
       const out = await generateLayout(data, true);
       setLayout(out);
@@ -54,9 +63,9 @@ function DesignPage() {
     id: string,
     patch: { x?: number; y?: number; w?: number; h?: number }
   ) => {
-    setLayout((prev: LayoutResult | null) => {
+    setLayout((prev) => {
       if (!prev) return prev;
-      const rooms = prev.rooms.map((r): LayoutResult["rooms"][number] =>
+      const rooms = prev.rooms.map((r) =>
         r.id === id ? { ...r, ...patch } : r
       );
       return { ...prev, rooms };
@@ -68,7 +77,6 @@ function DesignPage() {
       <div className="mx-auto max-w-7xl p-6">
         <FloorForm onSubmit={handleSubmit} canvasRef={canvasRef} />
 
-        {/* ✅ Loading indicator */}
         {isGenerating && (
           <div className="mt-6 rounded-lg border shadow bg-white p-6 text-center">
             <div className="animate-spin w-6 h-6 border-3 border-blue-500 border-t-transparent rounded-full mx-auto mb-3"></div>
@@ -85,8 +93,8 @@ function DesignPage() {
               layout={layout}
               onRoomEdit={handleRoomEdit}
               showWalls={true}
-              exteriorWallThickness={0.2}
-              interiorWallThickness={0.1}
+              exteriorWallThickness={wallConfig.exteriorThickness}
+              interiorWallThickness={wallConfig.interiorThickness}
             />
           </div>
         )}

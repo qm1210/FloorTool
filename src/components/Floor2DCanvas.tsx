@@ -39,21 +39,18 @@ interface FitViewToFloor {
   _max?: number;
 }
 
-// ✅ Define proper types for door spec
 interface DoorSpec {
   side: Side;
   width: number;
   offsetRatio: number;
 }
 
-// ✅ Define wall config interface
 interface WallConfig {
   geometry: THREE.PlaneGeometry;
   position: THREE.Vector3;
   side: Side;
 }
 
-// ✅ Define room data interface
 interface RoomData {
   id: string;
   label: string;
@@ -952,10 +949,10 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
             floorSizeRef.current.w / 2 - EXTERIOR_WALL_THICKNESS;
           const floorHalfH =
             floorSizeRef.current.h / 2 - EXTERIOR_WALL_THICKNESS;
-          const maxEdgeX = floorHalfW - WALL_EPS + INTERIOR_WALL_THICKNESS;
-          const minEdgeX = -floorHalfW + WALL_EPS - INTERIOR_WALL_THICKNESS;
-          const maxEdgeY = floorHalfH - WALL_EPS + INTERIOR_WALL_THICKNESS;
-          const minEdgeY = -floorHalfH + WALL_EPS - INTERIOR_WALL_THICKNESS;
+          const maxEdgeX = floorHalfW;
+          const minEdgeX = -floorHalfW;
+          const maxEdgeY = floorHalfH;
+          const minEdgeY = -floorHalfH;
 
           let edgeX = anchor.x;
           let edgeY = anchor.y;

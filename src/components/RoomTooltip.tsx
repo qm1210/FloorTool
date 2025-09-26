@@ -75,30 +75,6 @@ const RoomTooltip: React.FC<RoomTooltipProps> = ({
             </span>
           </div>
         )}
-
-        {(data.interiorWallThickness || data.exteriorWallThickness) && (
-          <div className="pt-1 mt-2 border-t border-gray-600/50">
-            <div className="text-gray-300 mb-1 text-xs">Độ dày tường:</div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              {data.interiorWallThickness && (
-                <div className="flex flex-col">
-                  <span className="text-gray-400">Phòng</span>
-                  <span className="font-mono text-yellow-300">
-                    {(data.interiorWallThickness * 100).toFixed(0)}cm
-                  </span>
-                </div>
-              )}
-              {data.exteriorWallThickness && (
-                <div className="flex flex-col">
-                  <span className="text-gray-400">Ngoài</span>
-                  <span className="font-mono text-green-300">
-                    {(data.exteriorWallThickness * 100).toFixed(0)}cm
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
