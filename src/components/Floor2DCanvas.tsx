@@ -937,6 +937,7 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
             return;
           }
 
+          // ✅ RESIZE LOGIC - Fixed anchor constraint và ngăn resize qua anchor
           const anchor = anchorRef.current!;
           const dx = hit.x - anchor.x;
           const dy = hit.y - anchor.y;
@@ -947,24 +948,101 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           const sgnX = mode.includes("E") ? 1 : mode.includes("W") ? -1 : 0;
           const sgnY = mode.includes("N") ? 1 : mode.includes("S") ? -1 : 0;
 
-          if (sgnX !== 0) newW = Math.max(MIN_W, Math.abs(dx));
-          if (sgnY !== 0) newH = Math.max(MIN_H, Math.abs(dy));
+          const floorHalfW =
+            floorSizeRef.current.w / 2 - EXTERIOR_WALL_THICKNESS;
+          const floorHalfH =
+            floorSizeRef.current.h / 2 - EXTERIOR_WALL_THICKNESS;
+          const maxEdgeX = floorHalfW - WALL_EPS + INTERIOR_WALL_THICKNESS;
+          const minEdgeX = -floorHalfW + WALL_EPS - INTERIOR_WALL_THICKNESS;
+          const maxEdgeY = floorHalfH - WALL_EPS + INTERIOR_WALL_THICKNESS;
+          const minEdgeY = -floorHalfH + WALL_EPS - INTERIOR_WALL_THICKNESS;
 
-          newW = Math.max(MIN_W, Math.round(newW / SNAP) * SNAP);
-          newH = Math.max(MIN_H, Math.round(newH / SNAP) * SNAP);
+          let edgeX = anchor.x;
+          let edgeY = anchor.y;
 
-          let cx = anchor.x + (sgnX * newW) / 2;
-          let cy = anchor.y + (sgnY * newH) / 2;
+          if (sgnX !== 0) {
+            const isCorrectDirection =
+              (sgnX === 1 && dx >= 0) || (sgnX === -1 && dx <= 0);
 
-          const halfW = floorSizeRef.current.w / 2 - EXTERIOR_WALL_THICKNESS;
-          const halfH = floorSizeRef.current.h / 2 - EXTERIOR_WALL_THICKNESS;
-          const left = -halfW + newW / 2;
-          const right = halfW - newW / 2;
-          const bottom = -halfH + newH / 2;
-          const top = halfH - newH / 2;
+            if (isCorrectDirection) {
+              const requestedW = Math.max(MIN_W, Math.abs(dx));
 
-          cx = Math.min(Math.max(cx, left), right);
-          cy = Math.min(Math.max(cy, bottom), top);
+              if (sgnX === 1) {
+                edgeX = anchor.x + requestedW;
+              } else {
+                edgeX = anchor.x - requestedW;
+              }
+
+              edgeX = Math.min(Math.max(edgeX, minEdgeX), maxEdgeX);
+
+              newW = Math.abs(edgeX - anchor.x);
+              newW = Math.max(MIN_W, Math.round(newW / SNAP) * SNAP);
+
+              if (sgnX === 1) {
+                edgeX = anchor.x + newW;
+              } else {
+                edgeX = anchor.x - newW;
+              }
+
+              edgeX = Math.min(Math.max(edgeX, minEdgeX), maxEdgeX);
+              newW = Math.abs(edgeX - anchor.x);
+            } else {
+              // ✅ Nếu kéo ngược hướng, giữ kích thước tối thiểu
+              newW = MIN_W;
+              if (sgnX === 1) {
+                edgeX = anchor.x + MIN_W;
+              } else {
+                edgeX = anchor.x - MIN_W;
+              }
+            }
+          }
+
+          if (sgnY !== 0) {
+            // ✅ Kiểm tra direction trước khi resize
+            const isCorrectDirection =
+              (sgnY === 1 && dy >= 0) || (sgnY === -1 && dy <= 0);
+
+            if (isCorrectDirection) {
+              const requestedH = Math.max(MIN_H, Math.abs(dy));
+
+              if (sgnY === 1) {
+                edgeY = anchor.y + requestedH;
+              } else {
+                edgeY = anchor.y - requestedH;
+              }
+
+              edgeY = Math.min(Math.max(edgeY, minEdgeY), maxEdgeY);
+
+              newH = Math.abs(edgeY - anchor.y);
+              newH = Math.max(MIN_H, Math.round(newH / SNAP) * SNAP);
+
+              if (sgnY === 1) {
+                edgeY = anchor.y + newH;
+              } else {
+                edgeY = anchor.y - newH;
+              }
+
+              edgeY = Math.min(Math.max(edgeY, minEdgeY), maxEdgeY);
+              newH = Math.abs(edgeY - anchor.y);
+            } else {
+              newH = MIN_H;
+              if (sgnY === 1) {
+                edgeY = anchor.y + MIN_H;
+              } else {
+                edgeY = anchor.y - MIN_H;
+              }
+            }
+          }
+
+          let cx = (anchor.x + edgeX) / 2;
+          let cy = (anchor.y + edgeY) / 2;
+
+          if (sgnX === 0) {
+            cx = anchor.x; // For N/S resize, X center stays at anchor
+          }
+          if (sgnY === 0) {
+            cy = anchor.y; // For E/W resize, Y center stays at anchor
+          }
 
           r.mesh.position.set(cx, cy, r.mesh.position.z);
 
@@ -972,7 +1050,6 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           const newGeom = new THREE.PlaneGeometry(newW, newH);
           r.mesh.geometry = newGeom;
 
-          // ✅ Fixed wall children filtering with proper typing
           if (showWalls) {
             const oldWalls = r.mesh.children.filter(
               (child: THREE.Object3D) =>
@@ -991,7 +1068,6 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
             createRoomWalls(r.mesh, newW, newH, r.id, doors);
           }
 
-          // ✅ Fixed door meshes with proper typing
           const doorMeshes: THREE.Mesh[] | undefined = r.mesh.userData.doors as
             | THREE.Mesh[]
             | undefined;
@@ -1089,6 +1165,7 @@ const Floor2DCanvas = forwardRef<Floor2DHandle, Props>(
           rendererRef.current.domElement.style.cursor = "default";
         }
       };
+
       const onUp = (evt?: PointerEvent) => {
         const element = rendererRef.current?.domElement as HTMLElement & {
           releasePointerCapture?: (pointerId: number) => void;

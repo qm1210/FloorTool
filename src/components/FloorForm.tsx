@@ -244,13 +244,13 @@ const FloorForm = ({ onSubmit, canvasRef }: Props) => {
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-blue-700">
-                    💡 Tổng diện tích:{" "}
+                    Tổng diện tích:{" "}
                     <span className="text-blue-800 font-semibold">
                       {getDisplayArea()} m²
                     </span>
                   </div>
                   <div className="rounded-lg bg-green-50 border border-green-200 p-3 text-green-700">
-                    🏠 Diện tích khả dụng:{" "}
+                    Diện tích khả dụng:{" "}
                     <span className="text-green-800 font-semibold">
                       {getUsableArea()} m²
                     </span>
